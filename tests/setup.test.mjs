@@ -5,7 +5,7 @@ import {
   renderSetupReport,
   requiredSetupBinaries,
   serverStartHint
-} from "../scripts/lib/setup.mjs";
+} from "../plugins/frontier/scripts/lib/setup.mjs";
 
 test("requiredSetupBinaries only requires omlx for the omlx backend", () => {
   assert.deepEqual(

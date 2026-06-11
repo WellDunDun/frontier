@@ -8,7 +8,7 @@
   "homepage": "https://github.com/WellDunDun/frontier",
   "license": "Apache-2.0",
   "keywords": ["frontier", "orchestration", "harnesses", "models", "providers", "subagents"],
-  "skills": "./skills/",
+  "skills": "./plugins/frontier/skills/",
   "interface": {
     "displayName": "Frontier",
     "shortDescription": "Frontier harness orchestration across configured models and providers.",

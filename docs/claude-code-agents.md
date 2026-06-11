@@ -7,7 +7,7 @@ harness mechanics live in one deterministic runtime.
 
 ## Companion runtime
 
-`scripts/frontier-companion.mjs` is the single source of truth for provider and
+`plugins/frontier/scripts/frontier-companion.mjs` is the single source of truth for provider and
 CLI mechanics. Subcommands:
 
 - `task [--harness pi|codex] [--write] [--model <m>] [--background] [--timeout-ms <n>] "<prompt>"`
@@ -50,7 +50,7 @@ If any check fails, the runtime refuses and prints the exact next command
 
 ## frontier-worker agent
 
-`agents/frontier-worker.md` is a thin forwarder (model `haiku`, `Bash` only). It
+`plugins/frontier/agents/frontier-worker.md` is a thin forwarder (model `haiku`, `Bash` only). It
 makes exactly one call to the companion `task` subcommand and returns stdout
 verbatim. It chooses `--harness pi` for research, review, summarization, and log
 reduction, and `--harness codex` for implementation, patches, and tests. It adds

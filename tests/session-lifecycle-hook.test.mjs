@@ -4,10 +4,10 @@ import process from "node:process";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SESSION_ID_ENV } from "../scripts/lib/job-control.mjs";
-import { ROOT, makeTempDir, run } from "./helpers.mjs";
+import { SESSION_ID_ENV } from "../plugins/frontier/scripts/lib/job-control.mjs";
+import { PLUGIN_ROOT, makeTempDir, run } from "./helpers.mjs";
 
-const HOOK = path.join(ROOT, "scripts", "session-lifecycle-hook.mjs");
+const HOOK = path.join(PLUGIN_ROOT, "scripts", "session-lifecycle-hook.mjs");
 
 test("SessionStart hook exports the Frontier companion session id", () => {
   const dir = makeTempDir();

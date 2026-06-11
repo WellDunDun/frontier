@@ -4,8 +4,8 @@ import process from "node:process";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveJobsDir, upsertJob } from "../scripts/lib/state.mjs";
-import { SESSION_ID_ENV } from "../scripts/lib/job-control.mjs";
+import { resolveJobsDir, upsertJob } from "../plugins/frontier/scripts/lib/state.mjs";
+import { SESSION_ID_ENV } from "../plugins/frontier/scripts/lib/job-control.mjs";
 import { COMPANION, makeTempDir, run, waitFor, writeExecutable, writeJson } from "./helpers.mjs";
 
 function withPluginData(pluginData, callback) {

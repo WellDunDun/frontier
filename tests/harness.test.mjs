@@ -9,7 +9,7 @@ import {
   buildCodexConfigBlock,
   checkOmlxHealth,
   extractPiFinalMessage
-} from "../scripts/lib/harness.mjs";
+} from "../plugins/frontier/scripts/lib/harness.mjs";
 import { makeTempDir, withMockedFetch, writeJson } from "./helpers.mjs";
 
 test("extractPiFinalMessage ignores explicit non-assistant roles after assistant output", () => {

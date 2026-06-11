@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeArgv, parseArgs, splitRawArgumentString } from "../scripts/lib/args.mjs";
+import { normalizeArgv, parseArgs, splitRawArgumentString } from "../plugins/frontier/scripts/lib/args.mjs";
 
 test("splitRawArgumentString preserves quoted prompt and option values", () => {
   assert.deepEqual(

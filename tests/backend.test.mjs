@@ -3,7 +3,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveBackend } from "../scripts/lib/backend.mjs";
+import { resolveBackend } from "../plugins/frontier/scripts/lib/backend.mjs";
 import { makeTempDir, withMockedFetch, writeJson } from "./helpers.mjs";
 
 function testPaths(root) {

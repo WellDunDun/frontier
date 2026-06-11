@@ -10,7 +10,7 @@ import {
   resolveJobFile,
   resolveJobsDir,
   upsertJob
-} from "../scripts/lib/state.mjs";
+} from "../plugins/frontier/scripts/lib/state.mjs";
 import { makeTempDir } from "./helpers.mjs";
 
 test("resolveFrontierDir stores workspace state under CLAUDE_PLUGIN_DATA", () => {

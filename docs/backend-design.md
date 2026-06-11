@@ -9,7 +9,7 @@ supporting three backend flavors with one resolution pipeline:
 
 ## Backend descriptor
 
-A single module `scripts/lib/backend.mjs` owns backend resolution and exports
+A single module `plugins/frontier/scripts/lib/backend.mjs` owns backend resolution and exports
 one shape consumed everywhere else:
 
 ```js

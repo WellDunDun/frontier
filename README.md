@@ -96,7 +96,7 @@ local providers.
 
 ## How it works
 
-- **Companion runtime** — `scripts/frontier-companion.mjs` owns every harness
+- **Companion runtime** — `plugins/frontier/scripts/frontier-companion.mjs` owns every harness
   detail: building the `pi` and `codex` command lines, checking the configured
   backend endpoint, verifying provider configuration, parsing output, and
   tracking jobs. No agent or command prompt ever composes a raw CLI string.
@@ -232,14 +232,15 @@ duplicated planning or recap skills inherited from the source repo.
 
 Load the plugin from this checkout while iterating:
 
-    claude --plugin-dir .
+    claude --plugin-dir plugins/frontier
 
 Then run `/agents` in Claude Code and confirm `frontier-worker` is listed, and
 `/help` to confirm the five `frontier:` commands.
 
-Validate the marketplace manifest:
+Validate the marketplace manifest and installable plugin:
 
     claude plugin validate .
+    claude plugin validate plugins/frontier
 
 Run the functional check (plugin metadata, marketplace consistency,
 frontmatter, required files, script syntax, forbidden flags):

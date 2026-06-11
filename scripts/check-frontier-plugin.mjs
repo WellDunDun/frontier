@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(scriptPath), "..");
+const pluginDir = "plugins/frontier";
+const pluginPath = (...parts) => path.posix.join(pluginDir, ...parts);
 
 const failures = [];
 const fail = (message) => failures.push(message);
@@ -101,7 +103,7 @@ async function listFiles(relDir) {
 }
 
 async function checkAgents() {
-  for (const relPath of await listFiles("agents")) {
+  for (const relPath of await listFiles(pluginPath("agents"))) {
     if (!relPath.endsWith(".md")) {
       continue;
     }
@@ -118,20 +120,21 @@ async function checkAgents() {
 }
 
 async function checkSkills() {
-  if (!(await exists("skills"))) {
-    fail("skills: directory is missing");
+  const skillsDir = pluginPath("skills");
+  if (!(await exists(skillsDir))) {
+    fail(`${skillsDir}: directory is missing`);
     return;
   }
-  for (const entry of await readdir(path.join(repoRoot, "skills"), { withFileTypes: true })) {
+  for (const entry of await readdir(path.join(repoRoot, skillsDir), { withFileTypes: true })) {
     if (!entry.isDirectory()) {
       continue;
     }
     if (!ALLOWED_SKILLS.has(entry.name)) {
-      fail(`skills/${entry.name}: inherited non-Frontier skill must be removed`);
+      fail(`${skillsDir}/${entry.name}: inherited non-Frontier skill must be removed`);
     }
-    const relPath = `skills/${entry.name}/SKILL.md`;
+    const relPath = path.posix.join(skillsDir, entry.name, "SKILL.md");
     if (!(await exists(relPath))) {
-      fail(`skills/${entry.name}: missing SKILL.md`);
+      fail(`${skillsDir}/${entry.name}: missing SKILL.md`);
       continue;
     }
     const fields = parseFrontmatter(relPath, await readText(relPath));
@@ -154,20 +157,21 @@ async function checkRequiredFiles() {
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/ISSUE_TEMPLATE/feature_request.yml",
     ".github/PULL_REQUEST_TEMPLATE.md",
-    ".claude-plugin/plugin.json",
     ".claude-plugin/marketplace.json",
     ".codex-plugin/plugin.json",
     "package.json",
-    "scripts/frontier-companion.mjs",
-    "agents/frontier-worker.md",
-    "commands/delegate.md",
-    "commands/status.md",
-    "commands/result.md",
-    "commands/cancel.md",
-    "commands/setup.md",
-    "hooks/hooks.json",
-    "scripts/session-lifecycle-hook.mjs",
-    "skills/frontier-orchestration/SKILL.md"
+    "scripts/check-frontier-plugin.mjs",
+    pluginPath(".claude-plugin/plugin.json"),
+    pluginPath("scripts/frontier-companion.mjs"),
+    pluginPath("agents/frontier-worker.md"),
+    pluginPath("commands/delegate.md"),
+    pluginPath("commands/status.md"),
+    pluginPath("commands/result.md"),
+    pluginPath("commands/cancel.md"),
+    pluginPath("commands/setup.md"),
+    pluginPath("hooks/hooks.json"),
+    pluginPath("scripts/session-lifecycle-hook.mjs"),
+    pluginPath("skills/frontier-orchestration/SKILL.md")
   ];
   for (const relPath of required) {
     if (!(await exists(relPath))) {
@@ -177,7 +181,7 @@ async function checkRequiredFiles() {
 }
 
 async function checkMarketplaceCatalog() {
-  const pluginRel = ".claude-plugin/plugin.json";
+  const pluginRel = pluginPath(".claude-plugin/plugin.json");
   const marketplaceRel = ".claude-plugin/marketplace.json";
   if (!(await exists(pluginRel)) || !(await exists(marketplaceRel))) {
     return;
@@ -221,16 +225,43 @@ async function checkMarketplaceCatalog() {
   if (entry.author?.name !== plugin.author?.name) {
     fail(`${marketplaceRel}: plugins[0].author.name must match plugin author.name`);
   }
-  if (entry.source !== "./") {
-    fail(`${marketplaceRel}: plugins[0].source must be ./ so the hosted marketplace installs this repo`);
+  if (entry.source !== `./${pluginDir}`) {
+    fail(`${marketplaceRel}: plugins[0].source must be ./${pluginDir} so the marketplace installs only the plugin directory`);
   }
   if (!Array.isArray(entry.tags) || entry.tags.length === 0) {
     fail(`${marketplaceRel}: plugins[0].tags must list searchable marketplace tags`);
   }
 }
 
+async function checkCodexManifest() {
+  const pluginRel = pluginPath(".claude-plugin/plugin.json");
+  const codexRel = ".codex-plugin/plugin.json";
+  if (!(await exists(pluginRel)) || !(await exists(codexRel))) {
+    return;
+  }
+
+  const plugin = await readJson(pluginRel);
+  const codex = await readJson(codexRel);
+  if (!plugin || !codex) {
+    return;
+  }
+
+  for (const field of ["name", "version", "description", "homepage", "license"]) {
+    if (codex[field] !== plugin[field]) {
+      fail(`${codexRel}: ${field} must match Claude plugin manifest (${plugin[field]})`);
+    }
+  }
+  const expectedSkills = `./${pluginPath("skills")}/`;
+  if (codex.skills !== expectedSkills) {
+    fail(`${codexRel}: skills must point at ${expectedSkills}`);
+  }
+}
+
 async function checkScriptsParse() {
-  const scripts = (await listFiles("scripts")).filter((file) => file.endsWith(".mjs"));
+  const scripts = [
+    ...(await listFiles("scripts")),
+    ...(await listFiles(pluginPath("scripts")))
+  ].filter((file) => file.endsWith(".mjs"));
   for (const relPath of scripts) {
     try {
       execFileSync(process.execPath, ["--check", path.join(repoRoot, relPath)], { stdio: "pipe" });
@@ -255,6 +286,10 @@ async function checkForbiddenStrings() {
       listFiles("commands"),
       listFiles("scripts"),
       listFiles("skills"),
+      listFiles(pluginPath("agents")),
+      listFiles(pluginPath("commands")),
+      listFiles(pluginPath("scripts")),
+      listFiles(pluginPath("skills")),
       listFiles("docs")
     ])
   ).flat();
@@ -278,7 +313,10 @@ async function checkForbiddenStrings() {
   for (const relPath of [
     ...(await listFiles("agents")),
     ...(await listFiles("commands")),
-    ...(await listFiles("scripts"))
+    ...(await listFiles("scripts")),
+    ...(await listFiles(pluginPath("agents"))),
+    ...(await listFiles(pluginPath("commands"))),
+    ...(await listFiles(pluginPath("scripts")))
   ]) {
     const body = await readText(relPath);
     if (body.includes(launchNeedle)) {
@@ -306,6 +344,7 @@ function checkNoTrackedLocalWorktrees() {
 async function main() {
   await checkRequiredFiles();
   await checkMarketplaceCatalog();
+  await checkCodexManifest();
   await checkAgents();
   await checkSkills();
   await checkScriptsParse();

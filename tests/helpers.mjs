@@ -7,7 +7,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const COMPANION = path.join(ROOT, "scripts", "frontier-companion.mjs");
+export const PLUGIN_ROOT = path.join(ROOT, "plugins", "frontier");
+export const COMPANION = path.join(PLUGIN_ROOT, "scripts", "frontier-companion.mjs");
 
 export function makeTempDir(prefix = "frontier-test-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));

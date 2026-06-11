@@ -11,7 +11,7 @@
       "displayName": "Frontier",
       "description": "Frontier orchestration runtime for delegating work across harnesses, models, and providers.",
       "version": "0.1.0",
-      "source": "./",
+      "source": "./plugins/frontier",
       "author": {
         "name": "WellDunDun"
       },
