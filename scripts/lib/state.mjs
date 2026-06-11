@@ -1,11 +1,13 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-// Job state lives in a project-local `.frontier/` directory so it travels with
-// the repository and is easy to inspect. Each job has a JSON record plus stdout
-// and stderr log files.
+// Job state lives outside the repository. Claude Code provides CLAUDE_PLUGIN_DATA
+// for plugin-owned runtime data; local CLI use falls back to the OS temp dir.
 
-const FRONTIER_DIR = ".frontier";
+const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
+const FALLBACK_STATE_ROOT_DIR = path.join(os.tmpdir(), "frontier-companion");
 const JOBS_DIR = "jobs";
 const MAX_JOBS = 50;
 
@@ -13,12 +15,30 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
-export function resolveFrontierDir(workspaceRoot) {
-  return path.join(workspaceRoot, FRONTIER_DIR);
+function canonicalWorkspaceRoot(workspaceRoot) {
+  try {
+    return fs.realpathSync.native(workspaceRoot);
+  } catch {
+    return workspaceRoot;
+  }
 }
 
-export function resolveJobsDir(workspaceRoot) {
-  return path.join(resolveFrontierDir(workspaceRoot), JOBS_DIR);
+function workspaceStateName(workspaceRoot) {
+  const slug =
+    (path.basename(workspaceRoot) || "workspace").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") ||
+    "workspace";
+  const hash = createHash("sha256").update(canonicalWorkspaceRoot(workspaceRoot)).digest("hex").slice(0, 16);
+  return `${slug}-${hash}`;
+}
+
+export function resolveFrontierDir(workspaceRoot, env = process.env) {
+  const pluginDataDir = env[PLUGIN_DATA_ENV];
+  const stateRoot = pluginDataDir ? path.join(pluginDataDir, "state") : FALLBACK_STATE_ROOT_DIR;
+  return path.join(stateRoot, workspaceStateName(workspaceRoot));
+}
+
+export function resolveJobsDir(workspaceRoot, env = process.env) {
+  return path.join(resolveFrontierDir(workspaceRoot, env), JOBS_DIR);
 }
 
 export function ensureJobsDir(workspaceRoot) {

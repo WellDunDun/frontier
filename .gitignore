@@ -1,4 +1,4 @@
-# Frontier companion job state (project-local, never committed)
+# Legacy Frontier companion job state / local scratch (never committed)
 .frontier/
 
 # Local Claude agent worktrees (never committed)

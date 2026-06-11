@@ -14,8 +14,11 @@ CLI mechanics. Subcommands:
   stdin. Default harness is `pi`. Read-only unless `--write` is given.
 - `status [job-id] [--json]` — list jobs for this repository, newest first, or
   detail one.
-- `result <job-id> [--json]` — print a finished job's final message.
-- `cancel <job-id> [--json]` — terminate a running job and mark its state.
+- `result [job-id] [--json]` — print a finished job's final message. Without
+  an id, defaults to the latest finished job in the current Claude Code session.
+- `cancel [job-id] [--json]` — terminate a running job and mark its state.
+  Without an id, cancels only when exactly one active job exists in the current
+  Claude Code session.
 - `setup [--apply-codex] [--json]` — diagnose readiness; optionally apply the
   Codex profile additively.
 
@@ -65,10 +68,12 @@ codex CLI strings.
 
 ## Job state
 
-Job records live in project-local `.frontier/jobs/`, one JSON file per job plus
+Job records live outside the repository under Claude Code's
+`CLAUDE_PLUGIN_DATA/state/<workspace>/jobs/` directory, with an OS temp
+fallback for direct CLI use. Each job has one JSON record plus
 `stdout`/`stderr` logs. Each record stores the harness, model, prompt excerpt,
-status (`running`/`completed`/`failed`/`cancelled`), timestamps, cwd, pid, and
-the path to the result. `.frontier/` is git-ignored.
+status (`running`/`completed`/`failed`/`cancelled`), timestamps, cwd, pid,
+Claude Code session id when available, and the path to the result.
 
 ## Prerequisites
 

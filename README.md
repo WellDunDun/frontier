@@ -141,8 +141,10 @@ still works.
 - `/frontier:delegate [--harness pi|codex] [--write] [--background] [--model <m>] <task>`
   — delegate a bounded sub-task to a local model and return its output verbatim.
 - `/frontier:status [job-id]` — list active and recent jobs, or detail one.
-- `/frontier:result <job-id>` — print a finished job's final output.
-- `/frontier:cancel <job-id>` — cancel a running job.
+- `/frontier:result [job-id]` — print a finished job's final output. Without an
+  id, defaults to the latest finished job in the current Claude Code session.
+- `/frontier:cancel [job-id]` — cancel a running job. Without an id, cancels
+  only when exactly one active job exists in the current Claude Code session.
 - `/frontier:setup [--apply]` — check oMLX, Pi, and Codex readiness and
   optionally provision the Pi provider and Codex profile (server must be up).
   `--apply-codex` is kept as a backward-compatible alias for `--apply`.

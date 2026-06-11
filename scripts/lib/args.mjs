@@ -1,7 +1,15 @@
 // Minimal argv parser shared by the Frontier companion subcommands.
 // No npm dependencies; Node stdlib only.
 
+export function normalizeArgv(argv) {
+  if (argv.length === 1 && /\s/.test(argv[0])) {
+    return splitRawArgumentString(argv[0]);
+  }
+  return argv;
+}
+
 export function parseArgs(argv, config = {}) {
+  argv = normalizeArgv(argv);
   const valueOptions = new Set(config.valueOptions ?? []);
   const booleanOptions = new Set(config.booleanOptions ?? []);
   const aliasMap = config.aliasMap ?? {};
@@ -74,4 +82,58 @@ export function parseArgs(argv, config = {}) {
   }
 
   return { options, positionals };
+}
+
+export function splitRawArgumentString(raw) {
+  const tokens = [];
+  let current = "";
+  let quote = null;
+  let escaping = false;
+
+  for (const character of String(raw ?? "")) {
+    if (escaping) {
+      current += character;
+      escaping = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaping = true;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (escaping) {
+    current += "\\";
+  }
+
+  if (current) {
+    tokens.push(current);
+  }
+
+  return tokens;
 }

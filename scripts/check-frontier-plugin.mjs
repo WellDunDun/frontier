@@ -141,6 +141,8 @@ async function checkRequiredFiles() {
     "commands/result.md",
     "commands/cancel.md",
     "commands/setup.md",
+    "hooks/hooks.json",
+    "scripts/session-lifecycle-hook.mjs",
     "skills/frontier-orchestration/SKILL.md"
   ];
   for (const relPath of required) {

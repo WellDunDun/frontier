@@ -18,6 +18,13 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "./lib/args.mjs";
 import { resolveBackend } from "./lib/backend.mjs";
 import {
+  getCurrentSessionId,
+  loadJobsNewestFirst,
+  resolveCancelableJob,
+  resolveResultJob,
+  resolveStatusJob
+} from "./lib/job-control.mjs";
+import {
   renderCancel,
   renderJobDetail,
   renderQueued,
@@ -35,11 +42,8 @@ import { buildSetupReport, renderSetupReport } from "./lib/setup.mjs";
 import { terminateProcessTree } from "./lib/process.mjs";
 import {
   generateJobId,
-  listJobs,
-  matchJob,
   nowIso,
   readJobFile,
-  sortJobsNewestFirst,
   upsertJob
 } from "./lib/state.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
@@ -55,8 +59,8 @@ function printUsage() {
       "Usage:",
       '  node scripts/frontier-companion.mjs task [--harness pi|codex] [--write] [--model <m>] [--background] [--timeout-ms <n>] "<prompt>"',
       "  node scripts/frontier-companion.mjs status [jobId] [--json]",
-      "  node scripts/frontier-companion.mjs result <jobId> [--json]",
-      "  node scripts/frontier-companion.mjs cancel <jobId> [--json]",
+      "  node scripts/frontier-companion.mjs result [jobId] [--json]",
+      "  node scripts/frontier-companion.mjs cancel [jobId] [--json]",
       "  node scripts/frontier-companion.mjs setup [--apply] [--json]",
       "      --apply provisions BOTH harnesses (Pi provider + Codex profile);",
       "      requires the local server to be up. --apply-codex is a kept alias.",
@@ -139,6 +143,7 @@ async function handleTask(argv) {
   }
 
   const jobId = generateJobId(harness);
+  const sessionId = getCurrentSessionId();
   const baseRecord = {
     id: jobId,
     harness,
@@ -149,7 +154,8 @@ async function handleTask(argv) {
     promptExcerpt: excerpt(prompt),
     timeoutMs,
     createdAt: nowIso(),
-    status: "queued"
+    status: "queued",
+    ...(sessionId ? { sessionId } : {})
   };
 
   if (options.background) {
@@ -261,15 +267,15 @@ function handleStatus(argv) {
 
   const cwd = resolveCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const jobs = sortJobsNewestFirst(listJobs(workspaceRoot)).map(reconcileJobLiveness);
   const reference = positionals[0];
 
   if (reference) {
-    const job = matchJob(jobs, reference);
+    const job = resolveStatusJob(workspaceRoot, reference, { reconcile: reconcileJobLiveness });
     emit(job, renderJobDetail(job), options.json);
     return;
   }
 
+  const jobs = loadJobsNewestFirst(workspaceRoot, { reconcile: reconcileJobLiveness });
   emit({ jobs }, renderStatusList(jobs), options.json);
 }
 
@@ -309,8 +315,7 @@ function handleResult(argv) {
 
   const cwd = resolveCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const jobs = sortJobsNewestFirst(listJobs(workspaceRoot)).map(reconcileJobLiveness);
-  const job = matchJob(jobs, requireJobReference(positionals, "result"));
+  const job = resolveResultJob(workspaceRoot, positionals[0], { reconcile: reconcileJobLiveness });
   emit(job, renderResult(job), options.json);
 }
 
@@ -326,8 +331,7 @@ function handleCancel(argv) {
 
   const cwd = resolveCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
-  const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
-  const job = matchJob(jobs, requireJobReference(positionals, "cancel"));
+  const job = resolveCancelableJob(workspaceRoot, positionals[0]);
 
   if (job.pid) {
     terminateProcessTree(job.pid);
@@ -339,14 +343,6 @@ function handleCancel(argv) {
     errorMessage: "Cancelled by user."
   });
   emit(updated, renderCancel(updated), options.json);
-}
-
-function requireJobReference(positionals, subcommand) {
-  const reference = String(positionals[0] ?? "").trim();
-  if (!reference) {
-    throw new Error(`Provide a job id: ${subcommand} <job-id>. Run status to list known jobs.`);
-  }
-  return reference;
 }
 
 // -----------------------------------------------------------------------------
