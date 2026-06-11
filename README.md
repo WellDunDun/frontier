@@ -247,6 +247,11 @@ frontmatter, required files, script syntax, forbidden flags):
 
     npm run check
 
+Agent-facing development guidance lives in `AGENTS.md`. Repo-local development
+skills live under `.agents/skills/`; they are for coding agents maintaining this
+repository and are intentionally separate from the shipped Claude plugin skills
+under `plugins/frontier/skills/`.
+
 ## Project
 
 - License: Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
