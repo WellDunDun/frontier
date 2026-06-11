@@ -59,8 +59,8 @@ Then, in Claude Code:
 
        /frontier:delegate reply with OK
 
-`--plugin-dir` is a local development and testing path. See
-[Distribution](#distribution) for the publishing path.
+`--plugin-dir` is a local development and testing path while Frontier is in
+early preview.
 
 ## Examples
 
@@ -251,31 +251,6 @@ Run the functional check (frontmatter, required files, script syntax, forbidden
 flags):
 
     npm run check
-
-## Distribution
-
-For Claude Code, `claude --plugin-dir .` is only the local testing flow. To
-remove checkout-based installation instructions for users, Frontier needs to be
-published through a Claude Code plugin marketplace. The canonical reference is
-the [Claude Code plugin documentation](https://code.claude.com/docs/en/plugins).
-
-The practical path is:
-
-1. Keep the plugin manifest, README, license, and validation checks current.
-2. Run `claude plugin validate .` before every release.
-3. Submit the public repository for Claude Code community-marketplace review.
-4. After acceptance, replace the checkout instructions with the marketplace
-   install command assigned to Frontier, typically after users add the
-   `claude-community` marketplace.
-
-For private or pre-review testing, Claude Code can also load a hosted plugin
-`.zip` with `--plugin-url`, but that is still a session-scoped test path, not
-the long-term install story.
-
-Frontier also ships a Codex plugin manifest for compatibility with Codex plugin
-surfaces. There is not yet a documented public Codex plugin marketplace path in
-the project docs, so keep the Codex manifest and repo-based development flow
-until an official publication route exists.
 
 ## Project
 
