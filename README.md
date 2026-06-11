@@ -16,6 +16,35 @@ review with the frontier orchestrator; delegate bounded research,
 implementation, testing, and log reduction to configured worker harnesses.
 Provider mechanics are configuration, never baked into prompts.
 
+## Why Frontier
+
+Frontier exists because frontier models are becoming simultaneously more
+capable, more expensive, and more scarce. Agentic coding does not spend tokens
+only on final reasoning; it burns context on search, retries, logs, dependency
+inspection, implementation attempts, and review loops.
+
+That cost pattern is measurable. A 2026 study of agentic coding workloads found
+that agentic tasks can consume **1000x more tokens** than ordinary code chat or
+code reasoning, with same-task runs varying by up to **30x** and higher token
+usage not reliably improving accuracy:
+[How Do AI Agents Spend Your Money?](https://arxiv.org/abs/2604.22750)
+
+The market pressure is visible in current frontier releases. Claude Fable 5 was
+reported as Anthropic's most capable broadly available model, but with pricing
+at **$10 per million input tokens** and **$50 per million output tokens**, plus
+safeguards that can route sensitive requests to another model:
+[The Verge](https://www.theverge.com/news/946725/anthropic-releases-claude-fable-5-mythos)
+
+Teams are already responding to this economics problem. Reporting on
+"token-maxxing" describes founders and companies adding spend visibility,
+approval flows, and token caps after surprise AI-agent costs:
+[Business Insider](https://www.businessinsider.com/pylon-ceo-tokenmaxxing-era-coming-to-end-ai-spend-limits-2026-6)
+
+Frontier's answer is orchestration. Keep the strongest frontier model focused on
+planning, judgment, and final review; route bounded scans, summaries,
+implementation attempts, and log reduction to cheaper, local, or specialized
+worker harnesses.
+
 ## Get Started
 
 Install Frontier from its Claude Code marketplace:
