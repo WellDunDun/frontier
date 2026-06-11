@@ -1,8 +1,9 @@
-# Frontier Claude Code Agents
+# Frontier Plugin Architecture
 
-Frontier lets Fable, the frontier orchestrator, delegate bounded work to local
-models served by oMLX through the Pi and Codex harnesses. All harness mechanics
-live in one deterministic runtime; the agent surface is intentionally thin.
+Frontier lets a frontier harness or model delegate bounded work to configured
+worker harnesses, models, and providers. The current plugin surfaces expose this
+through Claude Code/Codex commands and a thin Claude Code subagent, while all
+harness mechanics live in one deterministic runtime.
 
 ## Companion runtime
 
@@ -10,8 +11,8 @@ live in one deterministic runtime; the agent surface is intentionally thin.
 CLI mechanics. Subcommands:
 
 - `task [--harness pi|codex] [--write] [--model <m>] [--background] [--timeout-ms <n>] "<prompt>"`
-  — run a bounded sub-task on a local model. The prompt may also arrive on
-  stdin. Default harness is `pi`. Read-only unless `--write` is given.
+  — run a bounded sub-task on the configured model/provider. The prompt may also
+  arrive on stdin. Default harness is `pi`. Read-only unless `--write` is given.
 - `status [job-id] [--json]` — list jobs for this repository, newest first, or
   detail one.
 - `result [job-id] [--json]` — print a finished job's final message. Without
@@ -24,24 +25,25 @@ CLI mechanics. Subcommands:
 
 The runtime builds the harness command lines itself:
 
-- **Pi**: `pi --provider omlx --no-session --mode json --print` plus
-  `--exclude-tools edit,write` when read-only, and `--model` only when a model is
-  named.
+- **Pi**: `pi --provider <selected-provider> --no-session --mode json --print`
+  plus `--exclude-tools edit,write` when read-only, and an explicit `--model`
+  resolved from the selected backend.
 - **Codex**: `codex exec --ephemeral --skip-git-repo-check --sandbox <read-only|workspace-write>
-  --profile frontier-omlx --output-last-message <file> --json`. Codex always runs
-  under the `frontier-omlx` profile so it is bound to the local oMLX provider; it
-  never uses a bare model flag and never the interactive approval flag.
+  --profile <selected-profile> --output-last-message <file> --json`. Codex
+  always runs under the selected backend profile; it never uses a bare model flag
+  and never the interactive approval flag.
 
-### No-cloud-fallback guardrail
+### Provider fallback guardrail
 
-Before launching, the runtime verifies configuration so a silent cloud fallback
-is structurally impossible:
+Before launching, the runtime verifies configuration so an implicit provider
+fallback is structurally impossible:
 
-- the Pi path requires the `omlx` provider in `~/.pi/agent/models.json`;
-- the Codex path requires the `frontier-omlx` profile and `omlx` provider in
-  `~/.codex/config.toml`;
-- both require the oMLX server at `http://127.0.0.1:8000/v1` to answer a health
-  probe.
+- the Pi path requires the selected provider in `~/.pi/agent/models.json`;
+- the Codex path requires the selected profile/provider in `~/.codex/config.toml`;
+- both require the configured backend endpoint to answer a health probe.
+
+Cloud providers are valid when selected explicitly in backend configuration; the
+guardrail blocks accidental fallback to a different provider or model.
 
 If any check fails, the runtime refuses and prints the exact next command
 (`frontier-companion.mjs setup`).
@@ -77,7 +79,8 @@ Claude Code session id when available, and the path to the result.
 
 ## Prerequisites
 
-These CLIs must be on PATH: `omlx`, `pi`, `codex`. Start the oMLX server with
-`omlx start` (or `omlx serve <model>`) before delegating. `omlx launch <tool>` is
-an interactive configure-and-launch TUI; run it manually if you want it — the
-plugin never invokes it.
+These CLIs must be on PATH: `pi`, `codex`, and `node`. The `omlx` CLI is
+required only when the selected backend flavor is oMLX. Before delegating, make
+the selected backend reachable: start oMLX, start Ollama, or configure a reachable
+OpenAI-compatible endpoint. `omlx launch <tool>` is an interactive
+configure-and-launch TUI; run it manually if useful — the plugin never invokes it.

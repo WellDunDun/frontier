@@ -3,25 +3,25 @@
 [![CI](https://github.com/WellDunDun/frontier/actions/workflows/ci.yml/badge.svg)](https://github.com/WellDunDun/frontier/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Frontier is a Claude Code plugin for frontier-model orchestration. Fable (the
-frontier model running in Claude Code) stays the orchestrator; bounded sub-tasks
-are delegated to local models served by oMLX through two harnesses, Pi and
-Codex.
+Frontier is an orchestration runtime for frontier harnesses and models that
+need to delegate bounded work to other harnesses, models, and providers. It
+starts with Claude Code and Codex plugin surfaces plus a deterministic companion
+CLI that routes work through harness adapters such as Pi and Codex.
 
 Status: early public preview. The runtime is usable, but provider support and
-Claude Code plugin packaging are still evolving.
+plugin packaging are still evolving.
 
 The working pattern is simple: keep planning, tradeoffs, synthesis, and final
-review with the frontier model; delegate bounded research, implementation,
-testing, and log reduction to local-model workers. Provider mechanics are
-configuration, never baked into prompts.
+review with the frontier orchestrator; delegate bounded research,
+implementation, testing, and log reduction to configured worker harnesses.
+Provider mechanics are configuration, never baked into prompts.
 
 ## How it works
 
 - **Companion runtime** — `scripts/frontier-companion.mjs` owns every harness
-  detail: building the `pi` and `codex` command lines, checking the oMLX server,
-  verifying provider configuration, parsing output, and tracking jobs. No agent
-  or command prompt ever composes a raw CLI string.
+  detail: building the `pi` and `codex` command lines, checking the configured
+  backend endpoint, verifying provider configuration, parsing output, and
+  tracking jobs. No agent or command prompt ever composes a raw CLI string.
 - **frontier-worker agent** — a thin forwarder. It makes exactly one call to the
   companion `task` subcommand and returns the output verbatim. It picks `pi` for
   research/review/summarization/log reduction and `codex` for
@@ -31,17 +31,18 @@ configuration, never baked into prompts.
 - **Orchestration skill** — `/frontier-orchestration` is judgment-only guidance
   for decomposition, handoff packets, stop conditions, and the review loop.
 
-A structural guardrail prevents a silent cloud fallback: the codex path refuses
-to run unless the backend's profile (e.g. `frontier-omlx`) exists in
-`~/.codex/config.toml`, the pi path refuses unless the backend's provider (e.g.
-`omlx`) exists in `~/.pi/agent/models.json`, and both refuse if the local server
-is unreachable.
+A structural guardrail prevents implicit provider fallback: the codex path
+refuses to run unless the selected backend's profile exists in
+`~/.codex/config.toml`, the pi path refuses unless the selected backend's
+provider exists in `~/.pi/agent/models.json`, and both refuse if the configured
+backend is unreachable or unhealthy. Cloud models are allowed when they are
+selected explicitly through backend configuration.
 
 ## Backends
 
 Frontier resolves one backend descriptor that drives every harness detail
-(base URL, auth, provider/profile names, model resolution). Three flavors are
-supported:
+(base URL, auth, provider/profile names, model resolution). Backends can be
+local or remote. Three flavors are supported:
 
 - **oMLX** — the oMLX server (`127.0.0.1:8000`), with auth and `/v1/responses`
   (so both the Pi and Codex harnesses work).
@@ -50,8 +51,9 @@ supported:
   `/api/tags`. If the server does not serve `/v1/responses`, the Codex harness is
   disabled for that backend and `setup` says so; the Pi harness still works.
 - **openai** — any OpenAI-compatible server (LM Studio, vLLM, llama.cpp's server,
-  a remote gateway, …), selected **only** via a config file. See
-  [Bring your own server](#bring-your-own-server) below.
+  a hosted gateway, or a cloud provider exposing an OpenAI-compatible API),
+  selected **only** via a config file. See [Bring your own server](#bring-your-own-server)
+  below.
 
 `oMLX` and `Ollama` are chosen by an **auto-detect ladder** — oMLX first (its
 settings file exists or the server answers on `127.0.0.1:8000`), then Ollama (the
@@ -117,7 +119,8 @@ serve it, `setup` disables the Codex harness for that backend and the Pi harness
 still works.
 
 A safe starter file is available at `frontier.config.example.json`. Do not
-commit real API keys; prefer `apiKey.env` for any authenticated backend.
+commit real API keys; prefer `apiKey.env` for any authenticated local or cloud
+backend.
 
 ## Installation
 
@@ -135,25 +138,30 @@ In Claude Code, run `/frontier:setup` before the first delegation.
 
 ## One-time setup
 
-1. Start the oMLX server:
+1. Choose and start a backend:
 
-       omlx start
+   - oMLX: start the server with `omlx start` or `omlx serve <model>`.
+   - Ollama: start Ollama and make a model available.
+   - OpenAI-compatible local or cloud backend: add `frontier.config.json` with
+     `flavor: "openai"`, `baseUrl`, and an `apiKey.env` reference when auth
+     is required.
 
-   (or serve a specific model with `omlx serve <model>`). As a manual
-   alternative, `omlx launch <tool>` opens an interactive configure-and-launch
-   TUI — run it yourself; the plugin never invokes it.
+   `omlx launch <tool>` opens an interactive configure-and-launch TUI — run it
+   yourself if useful; the plugin never invokes it.
 
-2. Run setup and provision the Pi provider and Codex profile:
+2. Run setup and provision the Pi provider and Codex profile for the selected
+   backend:
 
        /frontier:setup
 
-   If the Pi provider or Codex `frontier-omlx` profile is missing, accept the
-   prompt to provision them. The apply step (`--apply`) provisions both harnesses
-   additively: it ensures the `omlx` provider exists in `~/.pi/agent/models.json`
-   and the provider/profile exist in `~/.codex/config.toml`, taking a timestamped
-   backup before any write and preserving unrelated entries. Models — including
-   the Codex profile's model — are read from the live server, so the server must
-   be running when you apply.
+   If the Pi provider or Codex profile is missing, accept the prompt to
+   provision them. The apply step (`--apply`) provisions both harnesses
+   additively: it ensures the selected Pi provider exists in
+   `~/.pi/agent/models.json` and the selected Codex provider/profile exist in
+   `~/.codex/config.toml`, taking a timestamped backup before any write and
+   preserving unrelated entries. Models — including the Codex profile's model —
+   are read from the configured backend, so the backend must be reachable when
+   you apply.
 
 3. Smoke test the delegation path:
 
@@ -162,24 +170,26 @@ In Claude Code, run `/frontier:setup` before the first delegation.
 ## Commands
 
 - `/frontier:delegate [--harness pi|codex] [--write] [--background] [--model <m>] <task>`
-  — delegate a bounded sub-task to a local model and return its output verbatim.
+  — delegate a bounded sub-task to the configured model/provider and return its
+  output verbatim.
 - `/frontier:status [job-id]` — list active and recent jobs, or detail one.
 - `/frontier:result [job-id]` — print a finished job's final output. Without an
   id, defaults to the latest finished job in the current Claude Code session.
 - `/frontier:cancel [job-id]` — cancel a running job. Without an id, cancels
   only when exactly one active job exists in the current Claude Code session.
-- `/frontier:setup [--apply]` — check oMLX, Pi, and Codex readiness and
-  optionally provision the Pi provider and Codex profile (server must be up).
-  `--apply-codex` is kept as a backward-compatible alias for `--apply`.
+- `/frontier:setup [--apply]` — check the selected backend plus Pi and
+  Codex readiness, then optionally provision the Pi provider and Codex profile
+  (backend must be reachable). `--apply-codex` is kept as a backward-compatible
+  alias for `--apply`.
 
 ## Skills
 
 ### /frontier-orchestration
 
-Use Fable as the frontier-model orchestrator while local-model workers handle
-bounded research, coding, testing, and log reduction through the Pi and Codex
-harnesses. Judgment stays with the frontier model; token-heavy work is
-delegated.
+Use a frontier harness or model as the orchestrator while worker harnesses handle
+bounded research, coding, testing, and log reduction through adapters such as Pi
+and Codex. Judgment stays with the orchestrator; token-heavy work is delegated to
+configured models and providers.
 
 Frontier intentionally ships only this orchestration skill. Provider and harness
 mechanics live in the companion runtime and the `frontier-worker` agent, not in

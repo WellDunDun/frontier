@@ -1,25 +1,25 @@
 {
   "name": "frontier",
   "version": "0.1.0",
-  "description": "Claude Code plugin for Fable orchestration and provider-backed local subagents.",
+  "description": "Frontier orchestration runtime for delegating work across harnesses, models, and providers.",
   "author": {
     "name": "WellDunDun"
   },
   "homepage": "https://github.com/WellDunDun/frontier",
   "license": "Apache-2.0",
-  "keywords": ["frontier", "claude-code", "fable", "omlx", "subagents"],
+  "keywords": ["frontier", "orchestration", "harnesses", "models", "providers", "subagents"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Frontier",
-    "shortDescription": "Fable orchestration with local provider-backed workers.",
-    "longDescription": "A plugin for frontier-model orchestration, starting with Claude Code agents that route bounded work to oMLX-backed Pi and Codex harnesses.",
+    "shortDescription": "Frontier harness orchestration across configured models and providers.",
+    "longDescription": "A plugin/runtime for frontier harnesses and models to orchestrate bounded work through other harnesses, models, and configured local or cloud providers.",
     "developerName": "WellDunDun",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/WellDunDun/frontier",
     "defaultPrompt": [
-      "Use Frontier when Fable should orchestrate provider-backed local workers",
-      "Route bounded work to oMLX-backed Pi or Codex agents when useful"
+      "Use Frontier when a frontier harness should orchestrate provider-backed worker harnesses",
+      "Route bounded work through configured Pi or Codex adapters when useful"
     ]
   }
 }

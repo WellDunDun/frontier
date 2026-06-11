@@ -1,6 +1,6 @@
 ---
-description: Delegate a bounded sub-task to a local model through the Pi or Codex harness
-argument-hint: "[--harness pi|codex] [--write] [--background] [--model <m>] [what the local worker should do]"
+description: Delegate a bounded sub-task to a configured model/provider through the Pi or Codex harness
+argument-hint: "[--harness pi|codex] [--write] [--background] [--model <m>] [what the worker should do]"
 allowed-tools: Bash(node:*)
 ---
 
@@ -25,6 +25,6 @@ Operating rules:
   the request.
 - Do not ask the subagent to inspect files, poll `/frontier:status`, fetch
   `/frontier:result`, call `/frontier:cancel`, or do follow-up work of its own.
-- If the request is empty, ask what the local worker should do.
-- If the companion reports that the oMLX server is down or a provider profile is
-  missing, stop and tell the user to run `/frontier:setup`.
+- If the request is empty, ask what the worker should do.
+- If the companion reports that the configured backend is unreachable or a
+  provider profile is missing, stop and tell the user to run `/frontier:setup`.

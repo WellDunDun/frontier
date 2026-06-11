@@ -1,6 +1,6 @@
 # Security Policy
 
-Frontier shells out to local harnesses and can optionally write to a workspace when a delegation uses `--write`. Security issues in this repo should be treated as runtime and credential-boundary issues, not only web vulnerabilities.
+Frontier shells out to harness CLIs and can optionally write to a workspace when a delegation uses `--write`. Security issues in this repo should be treated as runtime and credential-boundary issues, not only web vulnerabilities.
 
 ## Reporting
 
@@ -13,7 +13,7 @@ If GitHub Security Advisories are not available, open a minimal issue asking for
 High-priority issues include:
 
 - leaking API keys, model provider tokens, or local credential file contents;
-- bypassing the local-provider guardrails and silently falling back to a cloud provider;
+- bypassing the selected-provider guardrails and silently falling back to an unintended provider or model;
 - command injection through slash-command arguments, backend config, model names, or job ids;
 - unintended writes when a task did not request `--write`; and
 - reading or persisting sensitive local files outside documented config paths.

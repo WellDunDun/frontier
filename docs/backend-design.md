@@ -1,11 +1,11 @@
 # Backend Portability Design
 
-Goal: make the companion runtime work on any user's machine (open-source
-release), supporting three backend flavors with one resolution pipeline:
+Goal: make the companion runtime work across local and remote model providers,
+supporting three backend flavors with one resolution pipeline:
 
-- `omlx` — oMLX server (today's only backend, currently hardcoded)
+- `omlx` — oMLX server
 - `ollama` — Ollama's OpenAI-compatible endpoint
-- `openai` — any OpenAI-compatible server, via explicit config
+- `openai` — any OpenAI-compatible server or hosted gateway, via explicit config
 
 ## Backend descriptor
 
@@ -102,10 +102,11 @@ harnesses for the resolved backend, additively and with timestamped backups:
    `OMLX_API_KEY`) — pi's provider entry and codex's profile both reference it.
 3. Post-run guard: refuse a pi result whose JSON event stream shows a
    `"provider"` other than the backend's `piProvider`.
-4. Codex is bound to the local provider by `--profile`; `-m` only swaps the
+4. Codex is bound to the selected provider by `--profile`; `-m` only swaps the
    model within it. Never pass `-m` without the profile.
-5. Preflight refuses to run when provider config or the server is missing.
-   No silent fallback to any cloud provider, ever.
+5. Preflight refuses to run when provider config or the configured backend is
+   missing. No silent fallback to any unintended provider or model, ever. Cloud
+   providers are allowed only when selected explicitly through config.
 
 ## Constraints
 

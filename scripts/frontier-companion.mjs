@@ -3,9 +3,9 @@
 // Frontier companion runtime.
 //
 // Deterministic Node entry point that owns ALL provider / CLI mechanics for
-// delegating bounded sub-tasks to the Pi and Codex harnesses, both backed by a
-// local oMLX server. Agent and command prompt files never compose pi/codex CLI
-// strings themselves — they only call this script.
+// delegating bounded sub-tasks to configured Pi and Codex harness adapters.
+// Backends may be local or remote; agent and command prompt files never compose
+// pi/codex CLI strings themselves — they only call this script.
 //
 // Subcommands: task | status | result | cancel | setup
 
@@ -54,7 +54,7 @@ const VALID_HARNESSES = new Set(["pi", "codex"]);
 function printUsage() {
   process.stdout.write(
     [
-      "Frontier companion — delegate bounded tasks to local Pi / Codex harnesses.",
+      "Frontier companion — delegate bounded tasks through configured Pi / Codex harnesses.",
       "",
       "Usage:",
       '  node scripts/frontier-companion.mjs task [--harness pi|codex] [--write] [--model <m>] [--background] [--timeout-ms <n>] "<prompt>"',
@@ -63,7 +63,7 @@ function printUsage() {
       "  node scripts/frontier-companion.mjs cancel [jobId] [--json]",
       "  node scripts/frontier-companion.mjs setup [--apply] [--json]",
       "      --apply provisions BOTH harnesses (Pi provider + Codex profile);",
-      "      requires the local server to be up. --apply-codex is a kept alias.",
+      "      requires the configured backend to be reachable. --apply-codex is a kept alias.",
       ""
     ].join("\n")
   );
@@ -128,9 +128,10 @@ async function handleTask(argv) {
     throw new Error('Provide a prompt: task --harness pi "<prompt>" (or pipe it on stdin).');
   }
 
-  // Structural guardrail: refuse before launching if provider config is missing
-  // or the local server is down. This makes a cloud fallback impossible. The
-  // resolved backend is reused for the run so config precedence is consistent.
+  // Structural guardrail: refuse before launching if selected provider config
+  // is missing or the configured backend is down. This prevents implicit fallback
+  // to another provider. The resolved backend is reused for the run so config
+  // precedence is consistent.
   const backend = await resolveBackend({ workspaceRoot });
   const check = await preflight({ harness, scriptPath: SCRIPT_PATH, backend });
   if (!check.ok) {

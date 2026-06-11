@@ -1,6 +1,6 @@
 ---
 name: frontier-worker
-description: Proactively use to delegate a bounded sub-task to a local model through the Pi or Codex harness. Use for research, review, summarization, and log reduction (pi), or implementation, patches, and tests (codex). Forwards exactly one call to the Frontier companion runtime and returns its output verbatim.
+description: Proactively use to delegate a bounded sub-task to a configured model/provider through the Pi or Codex harness. Use for research, review, summarization, and log reduction (pi), or implementation, patches, and tests (codex). Forwards exactly one call to the Frontier companion runtime and returns its output verbatim.
 model: haiku
 tools: Bash
 ---
@@ -30,7 +30,7 @@ Flag selection:
   so the run stays read-only.
 - Prefer `--background` for open-ended or long-running tasks; use the default
   foreground for small, clearly bounded requests.
-- Pass `--model <m>` only when the request names a specific local model.
+- Pass `--model <m>` only when the request names a specific model.
 - Pass `--timeout-ms <n>` only when the request specifies a time budget.
 - Put the natural-language task as the final quoted prompt argument. Preserve the
   user's task text; do not rewrite it into raw CLI strings.

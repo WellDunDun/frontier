@@ -435,9 +435,9 @@ function tomlHasTable(toml, tableName) {
 export function buildCodexConfigBlock(backend, model) {
   const lines = [
     "",
-    "# --- Frontier: local provider (added by frontier-companion setup) ---",
+    "# --- Frontier: selected provider (added by frontier-companion setup) ---",
     `[model_providers.${backend.piProvider}]`,
-    `name = "${backend.flavor} (local)"`,
+    `name = "${backend.flavor}"`,
     `base_url = "${backend.baseUrl}"`,
     'wire_api = "responses"'
   ];
@@ -623,8 +623,8 @@ function pickAssistantText(value) {
 export function buildCodexArgs({ write, lastMessageFile, prompt, model, profile }) {
   // codex exec rejects the interactive approval flag, so it is never passed
   // here. Never use a bare -m without the profile: the profile is what binds
-  // codex to the local provider, preventing a silent cloud fallback. With the
-  // profile in place, -m only swaps which local model is requested.
+  // codex to the selected provider, preventing implicit fallback. With the
+  // profile in place, -m only swaps which configured model is requested.
   const args = [
     "exec",
     "--ephemeral",

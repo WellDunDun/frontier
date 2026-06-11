@@ -62,28 +62,26 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
   const piProvider = piOmlxProviderPresent(backend);
   const codexProfile = codexProfilePresent(backend);
 
-  const ready =
-    binaries.omlx.available &&
-    binaries.pi.available &&
-    binaries.codex.available &&
-    piProvider &&
-    health.ok;
+  const requiredBinaries = requiredSetupBinaries(backend);
+  const requiredBinariesReady = requiredBinaries.every((name) => binaries[name]?.available);
+  const codexReady = backend.codexSupported === false || (binaries.codex.available && codexProfile);
+  const ready = requiredBinariesReady && piProvider && codexReady && health.ok;
 
   const nextSteps = [];
-  if (!binaries.omlx.available) {
+  if (requiresOmlxBinary(backend) && !binaries.omlx.available) {
     nextSteps.push("Install / expose oMLX on PATH.");
   }
   if (!binaries.pi.available) {
     nextSteps.push("Install / expose pi on PATH.");
   }
-  if (!binaries.codex.available) {
+  if (backend.codexSupported !== false && !binaries.codex.available) {
     nextSteps.push("Install / expose codex on PATH.");
   }
   if (!health.reachable) {
-    nextSteps.push("Start the local server: `omlx start` (or `omlx serve <model>`).");
+    nextSteps.push(serverStartHint(backend));
   } else if (!health.ok) {
     nextSteps.push(
-      `The local server responded with ${health.detail}. Check backend auth/configuration before running workers.`
+      `The configured backend responded with ${health.detail}. Check backend auth/configuration before running workers.`
     );
   }
   if (!piProvider) {
@@ -93,13 +91,7 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
         "`node scripts/frontier-companion.mjs setup --apply`."
     );
   }
-  if (backend.codexSupported === false) {
-    nextSteps.push(
-      `Codex is unavailable: the "${backend.flavor}" backend at ${backend.baseUrl} does not ` +
-        "serve /v1/responses. Use the pi harness (`--harness pi`). To enable codex, point " +
-        "Frontier at a backend that exposes the OpenAI Responses API."
-    );
-  } else if (!codexProfile) {
+  if (backend.codexSupported !== false && !codexProfile) {
     nextSteps.push(
       `Codex has no "${backend.codexProfile}" profile. Provision it (server must be up) with: ` +
         "`node scripts/frontier-companion.mjs setup --apply`."
@@ -148,6 +140,29 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
   };
 }
 
+export function requiresOmlxBinary(backend) {
+  return backend.flavor === "omlx";
+}
+
+export function requiredSetupBinaries(backend) {
+  return [
+    "node",
+    "pi",
+    ...(backend.codexSupported === false ? [] : ["codex"]),
+    ...(requiresOmlxBinary(backend) ? ["omlx"] : [])
+  ];
+}
+
+export function serverStartHint(backend) {
+  if (backend.flavor === "omlx") {
+    return "Start the oMLX server: `omlx start` (or `omlx serve <model>`).";
+  }
+  if (backend.flavor === "ollama") {
+    return "Start Ollama and make a model available for the configured endpoint.";
+  }
+  return `Start or configure the OpenAI-compatible backend at ${backend.baseUrl}.`;
+}
+
 export function renderSetupReport(report) {
   const lines = [];
   const mark = (ok) => (ok ? "ok" : "MISSING");
@@ -171,13 +186,13 @@ export function renderSetupReport(report) {
   lines.push(`  key source     ${renderKeySource(report.backend)}`);
   lines.push(`  codex support  ${report.backend.codexSupported ? "yes" : "no (no /v1/responses)"}`);
   lines.push("");
-  lines.push("Binaries on PATH:");
-  for (const key of ["omlx", "pi", "codex", "node"]) {
+  lines.push("Required binaries on PATH:");
+  for (const key of requiredSetupBinaries(report.backend)) {
     const bin = report.binaries[key];
     lines.push(`  ${key.padEnd(6)} ${mark(bin.available)}  ${bin.detail ?? ""}`.trimEnd());
   }
   lines.push("");
-  lines.push(`Local server (${report.backend.baseUrl}):`);
+  lines.push(`Backend endpoint (${report.backend.baseUrl}):`);
   if (report.omlx.reachable) {
     lines.push(`  reachable  (HTTP ${report.omlx.status})${report.omlx.ok ? " — healthy" : ""}`);
     const models = report.server.models;
@@ -192,7 +207,7 @@ export function renderSetupReport(report) {
     lines.push(`  active model: ${report.server.activeModel ?? "(none resolved)"}`);
   } else {
     lines.push(`  unreachable — ${report.omlx.detail}`);
-    lines.push("  Start it with: omlx start");
+    lines.push(`  ${serverStartHint(report.backend)}`);
   }
   lines.push("");
   lines.push("Pi provider:");

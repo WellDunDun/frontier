@@ -1,5 +1,5 @@
 ---
-description: Check whether the local Frontier harnesses (oMLX, Pi, Codex) are ready, and optionally provision the Pi provider and Codex profile
+description: Check whether the selected Frontier backend and harness adapters are ready, and optionally provision the Pi provider and Codex profile
 argument-hint: "[--apply]"
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -34,11 +34,13 @@ If the report says Codex is unsupported on the backend (the server does not serv
   that exposes the OpenAI Responses API. Do not offer to provision the Codex
   profile in this case.
 
-If the report says the local server is not reachable:
-- Relay the guidance to start it: `omlx start` (or `omlx serve <model>`); for an
-  Ollama backend, start Ollama and pull/run a model.
-- Provisioning needs the server up so models are read from it; do not apply
-  while it is unreachable.
+If the report says the backend endpoint is not reachable:
+- Relay the backend-specific guidance from the setup output. For oMLX that means
+  starting oMLX; for Ollama, start Ollama and make a model available; for an
+  explicit OpenAI-compatible backend, fix the configured URL/auth or start that
+  service.
+- Provisioning needs the backend reachable so models are read from it; do not
+  apply while it is unreachable.
 
 If the report says the Pi provider or the Codex profile is missing and the
 request did not already include `--apply`:
@@ -53,11 +55,12 @@ request did not already include `--apply`:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/frontier-companion.mjs" setup --apply
 ```
 
-- `--apply` provisions BOTH harnesses additively: it ensures the Pi provider
-  entry exists in `~/.pi/agent/models.json` and the Codex provider/profile exist
-  in `~/.codex/config.toml`, taking a timestamped backup before any write and
-  preserving unrelated entries. The model is resolved from the live server, so
-  no model id is hardcoded. Relay the final output, including any backup paths.
+- `--apply` provisions BOTH harnesses additively: it ensures the selected Pi
+  provider entry exists in `~/.pi/agent/models.json` and the selected Codex
+  provider/profile exist in `~/.codex/config.toml`, taking a timestamped backup
+  before any write and preserving unrelated entries. The model is resolved from
+  the configured backend, so no model id is hardcoded. Relay the final output,
+  including any backup paths.
 - `--apply-codex` still works as a backward-compatible alias for `--apply`.
 
 If everything is already ready, do not ask anything — just present the report.

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Claude Code plugin for Fable orchestration and provider-backed local subagents.",
+  "description": "Frontier orchestration runtime for delegating work across harnesses, models, and providers.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/WellDunDun/frontier",
   "repository": {
@@ -14,12 +14,14 @@
     "url": "https://github.com/WellDunDun/frontier/issues"
   },
   "keywords": [
-    "claude-code",
     "frontier",
-    "fable",
-    "omlx",
+    "orchestration",
+    "harnesses",
+    "models",
+    "providers",
     "subagents",
-    "local-models"
+    "claude-code",
+    "codex-plugin"
   ],
   "engines": {
     "node": ">=20"

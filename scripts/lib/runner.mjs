@@ -32,10 +32,20 @@ function setupHint(scriptPath) {
   return `node "${scriptPath}" setup`;
 }
 
-// Verify provider configuration AND server health before launching. This makes a
-// silent cloud fallback structurally impossible: codex without its profile, or
-// pi without its provider, refuses up front. The backend descriptor supplies the
-// provider/profile names and base URL so nothing here is hardcoded.
+function backendStartHint(backend) {
+  if (backend?.flavor === "omlx") {
+    return "Start the oMLX server with: omlx start";
+  }
+  if (backend?.flavor === "ollama") {
+    return "Start Ollama and make a model available.";
+  }
+  return "Start the configured OpenAI-compatible backend or fix its baseUrl/auth.";
+}
+
+// Verify provider configuration AND backend health before launching. This makes
+// implicit provider fallback structurally impossible: codex without its profile,
+// or pi without its provider, refuses up front. The backend descriptor supplies
+// the provider/profile names and base URL so nothing here is hardcoded.
 export async function preflight({ harness, scriptPath, backend }) {
   const resolved = backend ?? (await resolveBackend());
   const problems = [];
@@ -69,8 +79,8 @@ export async function preflight({ harness, scriptPath, backend }) {
   if (!health.ok) {
     problems.push(
       health.reachable
-        ? `Local server at ${resolved.baseUrl} responded with ${health.detail}. Check backend auth/configuration.`
-        : `Local server at ${resolved.baseUrl} is not reachable (${health.detail}). Start it with: omlx start`
+        ? `Configured backend at ${resolved.baseUrl} responded with ${health.detail}. Check backend auth/configuration.`
+        : `Configured backend at ${resolved.baseUrl} is not reachable (${health.detail}). ${backendStartHint(resolved)}`
     );
   }
 
@@ -83,7 +93,7 @@ export async function preflight({ harness, scriptPath, backend }) {
   if (harness === "pi" && piOmlxProviderPresent(resolved) && !piOmlxDefaultModel(resolved)) {
     problems.push(
       `Pi's "${resolved.piProvider}" provider lists no models in ~/.pi/agent/models.json, ` +
-        `so the run cannot be pinned to a local model. Run: ${setupHint(scriptPath)}`
+        `so the run cannot be pinned to a selected model. Run: ${setupHint(scriptPath)}`
     );
   }
 
@@ -198,7 +208,7 @@ async function runPi({ model, write, prompt, cwd, timeoutMs, backend }) {
       finalMessage:
         `Refused: pi ran on provider "${providerSeen[1]}" instead of ` +
         `"${backend.piProvider}". The result was discarded to prevent a ` +
-        `silent cloud fallback.`,
+        `silent provider fallback.`,
       rawStdout: result.stdout,
       rawStderr: result.stderr,
       timedOut: result.timedOut,

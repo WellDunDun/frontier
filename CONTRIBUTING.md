@@ -1,6 +1,6 @@
 # Contributing
 
-Frontier is early-stage infrastructure for local-model delegation from Claude Code. Contributions are welcome when they keep the runtime deterministic, provider-safe, and easy to verify.
+Frontier is early-stage infrastructure for harness/model delegation across configured providers. Contributions are welcome when they keep the runtime deterministic, provider-safe, and easy to verify.
 
 ## Development
 
@@ -13,7 +13,7 @@ Frontier is early-stage infrastructure for local-model delegation from Claude Co
 
 - Keep provider and harness mechanics in `scripts/frontier-companion.mjs` and `scripts/lib/*`.
 - Keep command, agent, and skill markdown free of raw provider CLI composition.
-- Preserve the no-cloud-fallback guardrails. A missing local provider, profile, model, or server should fail closed with an actionable message.
+- Preserve the provider-fallback guardrails. A missing selected provider, profile, model, or backend should fail closed with an actionable message.
 - Do not commit generated job state, local agent worktrees, credentials, or machine-specific paths.
 
 ## Pull Requests
