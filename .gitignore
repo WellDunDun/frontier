@@ -1,0 +1,5 @@
+# Frontier companion job state (project-local, never committed)
+.frontier/
+
+# Node
+node_modules/

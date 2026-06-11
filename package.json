@@ -1,0 +1,11 @@
+{
+  "name": "frontier",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code plugin for Fable orchestration and provider-backed local subagents.",
+  "license": "MIT",
+  "scripts": {
+    "check": "node scripts/check-frontier-plugin.mjs"
+  }
+}
