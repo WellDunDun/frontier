@@ -16,6 +16,90 @@ review with the frontier orchestrator; delegate bounded research,
 implementation, testing, and log reduction to configured worker harnesses.
 Provider mechanics are configuration, never baked into prompts.
 
+## Get Started
+
+During development, load Frontier from a checkout:
+
+```sh
+git clone https://github.com/WellDunDun/frontier.git
+cd frontier
+npm ci
+npm run check
+claude --plugin-dir .
+```
+
+Then, in Claude Code:
+
+1. Choose and start or configure a backend:
+
+   - oMLX: start the server with `omlx start` or `omlx serve <model>`.
+   - Ollama: start Ollama and make a model available.
+   - OpenAI-compatible local or cloud backend: add `frontier.config.json` with
+     `flavor: "openai"`, `baseUrl`, and an `apiKey.env` reference when auth
+     is required.
+
+   `omlx launch <tool>` opens an interactive configure-and-launch TUI; run it
+   yourself if useful. Frontier does not invoke it for you.
+
+2. Check readiness:
+
+       /frontier:setup
+
+3. Provision the Pi provider and Codex profile if they are missing:
+
+       /frontier:setup --apply
+
+   The apply step provisions both harnesses additively: it ensures the selected
+   Pi provider exists in `~/.pi/agent/models.json` and the selected Codex
+   provider/profile exist in `~/.codex/config.toml`, taking a timestamped backup
+   before any write and preserving unrelated entries. Models are read from the
+   configured backend, so the backend must be reachable when you apply.
+
+4. Smoke test delegation:
+
+       /frontier:delegate reply with OK
+
+`--plugin-dir` is a local development and testing path. See
+[Distribution](#distribution) for the publishing path.
+
+## Examples
+
+Delegate a research or review task through the default worker harness:
+
+    /frontier:delegate summarize the failing npm test output and suggest the smallest fix
+
+Send a bounded implementation task through Codex and allow file edits:
+
+    /frontier:delegate --harness codex --write add tests for setup backend readiness
+
+Run a longer task in the background, then collect the result later:
+
+    /frontier:delegate --harness pi --background inspect the latest logs and group recurring failures
+    /frontier:status
+    /frontier:result <job-id>
+
+Pin a model for a single delegated task when the selected backend exposes more
+than one model:
+
+    /frontier:delegate --harness pi --model glm-5.1 compare these two implementation plans
+
+Point Frontier at an OpenAI-compatible gateway, local server, or cloud provider:
+
+```json
+{
+  "flavor": "openai",
+  "baseUrl": "https://api.example.com/v1",
+  "apiKey": { "env": "FRONTIER_API_KEY" },
+  "defaultModel": "glm-5.1",
+  "piProvider": "frontier-gateway",
+  "codexProfile": "frontier-gateway"
+}
+```
+
+With that config in `frontier.config.json`, `/frontier:setup --apply`
+provisions the harness entries against that backend instead of auto-detected
+local providers.
+
 ## How it works
 
 - **Companion runtime** — `scripts/frontier-companion.mjs` owns every harness
@@ -122,51 +206,6 @@ A safe starter file is available at `frontier.config.example.json`. Do not
 commit real API keys; prefer `apiKey.env` for any authenticated local or cloud
 backend.
 
-## Installation
-
-Until Frontier is published through a plugin registry, load it from a checkout:
-
-```sh
-git clone https://github.com/WellDunDun/frontier.git
-cd frontier
-npm ci
-npm run check
-claude --plugin-dir .
-```
-
-In Claude Code, run `/frontier:setup` before the first delegation.
-
-## One-time setup
-
-1. Choose and start a backend:
-
-   - oMLX: start the server with `omlx start` or `omlx serve <model>`.
-   - Ollama: start Ollama and make a model available.
-   - OpenAI-compatible local or cloud backend: add `frontier.config.json` with
-     `flavor: "openai"`, `baseUrl`, and an `apiKey.env` reference when auth
-     is required.
-
-   `omlx launch <tool>` opens an interactive configure-and-launch TUI — run it
-   yourself if useful; the plugin never invokes it.
-
-2. Run setup and provision the Pi provider and Codex profile for the selected
-   backend:
-
-       /frontier:setup
-
-   If the Pi provider or Codex profile is missing, accept the prompt to
-   provision them. The apply step (`--apply`) provisions both harnesses
-   additively: it ensures the selected Pi provider exists in
-   `~/.pi/agent/models.json` and the selected Codex provider/profile exist in
-   `~/.codex/config.toml`, taking a timestamped backup before any write and
-   preserving unrelated entries. Models — including the Codex profile's model —
-   are read from the configured backend, so the backend must be reachable when
-   you apply.
-
-3. Smoke test the delegation path:
-
-       /frontier:delegate reply with OK
-
 ## Commands
 
 - `/frontier:delegate [--harness pi|codex] [--write] [--background] [--model <m>] <task>`
@@ -212,6 +251,31 @@ Run the functional check (frontmatter, required files, script syntax, forbidden
 flags):
 
     npm run check
+
+## Distribution
+
+For Claude Code, `claude --plugin-dir .` is only the local testing flow. To
+remove checkout-based installation instructions for users, Frontier needs to be
+published through a Claude Code plugin marketplace. The canonical reference is
+the [Claude Code plugin documentation](https://code.claude.com/docs/en/plugins).
+
+The practical path is:
+
+1. Keep the plugin manifest, README, license, and validation checks current.
+2. Run `claude plugin validate .` before every release.
+3. Submit the public repository for Claude Code community-marketplace review.
+4. After acceptance, replace the checkout instructions with the marketplace
+   install command assigned to Frontier, typically after users add the
+   `claude-community` marketplace.
+
+For private or pre-review testing, Claude Code can also load a hosted plugin
+`.zip` with `--plugin-url`, but that is still a session-scoped test path, not
+the long-term install story.
+
+Frontier also ships a Codex plugin manifest for compatibility with Codex plugin
+surfaces. There is not yet a documented public Codex plugin marketplace path in
+the project docs, so keep the Codex manifest and repo-based development flow
+until an official publication route exists.
 
 ## Project
 
