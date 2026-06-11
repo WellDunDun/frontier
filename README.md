@@ -26,9 +26,29 @@ configuration, never baked into prompts.
   for decomposition, handoff packets, stop conditions, and the review loop.
 
 A structural guardrail prevents a silent cloud fallback: the codex path refuses
-to run unless the `frontier-omlx` profile exists in `~/.codex/config.toml`, the
-pi path refuses unless the `omlx` provider exists in `~/.pi/agent/models.json`,
-and both refuse if the oMLX server is unreachable.
+to run unless the backend's profile (e.g. `frontier-omlx`) exists in
+`~/.codex/config.toml`, the pi path refuses unless the backend's provider (e.g.
+`omlx`) exists in `~/.pi/agent/models.json`, and both refuse if the local server
+is unreachable.
+
+## Backends
+
+Frontier resolves one backend descriptor that drives every harness detail
+(base URL, auth, provider/profile names, model resolution). Two local flavors are
+supported today:
+
+- **oMLX** — the oMLX server (`127.0.0.1:8000`), with auth and `/v1/responses`
+  (so both the Pi and Codex harnesses work).
+- **Ollama** — Ollama's OpenAI-compatible endpoint (`127.0.0.1:11434`), no auth
+  by default. Active/available models come from Ollama's `/api/ps` and
+  `/api/tags`. If the server does not serve `/v1/responses`, the Codex harness is
+  disabled for that backend and `setup` says so; the Pi harness still works.
+
+The flavor is chosen by an **auto-detect ladder** — oMLX first (its settings file
+exists or the server answers on `127.0.0.1:8000`), then Ollama (the server answers
+on `127.0.0.1:11434`). A `frontier.config.json` (workspace root) or
+`~/.frontier/config.json` (user) can select a flavor explicitly and override the
+base URL.
 
 ## One-time setup
 

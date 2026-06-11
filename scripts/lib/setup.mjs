@@ -17,7 +17,7 @@ import {
 // backed up first, before reporting. Applying requires the server to be up so
 // the model list and active model can be read from it (no hardcoded model ids).
 export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
-  const backend = resolveBackend({ workspaceRoot });
+  const backend = await resolveBackend({ workspaceRoot });
   const binaries = probeBinaries();
   const health = await checkOmlxHealth(backend);
 
@@ -41,10 +41,21 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
       codexApply = { applied: false, alreadyPresent: false, backupPath: null, reason: "server unreachable" };
     } else {
       piApply = applyPiConfig(backend, serverModels);
-      // Codex's profile model comes from the live server (active model preferred,
-      // else the single chat model); -m overrides at run time regardless.
-      const codexModel = activeModel ?? (serverModels.length === 1 ? serverModels[0].id : null);
-      codexApply = applyCodexConfig(backend, codexModel);
+      if (backend.codexSupported === false) {
+        // No /v1/responses on this backend — provisioning a codex profile would
+        // only mislead. Skip it and say why; pi is still provisioned above.
+        codexApply = {
+          applied: false,
+          alreadyPresent: false,
+          backupPath: null,
+          reason: "codex unsupported on this backend (no /v1/responses)"
+        };
+      } else {
+        // Codex's profile model comes from the live server (active model preferred,
+        // else the single chat model); -m overrides at run time regardless.
+        const codexModel = activeModel ?? (serverModels.length === 1 ? serverModels[0].id : null);
+        codexApply = applyCodexConfig(backend, codexModel);
+      }
     }
   }
 
@@ -78,7 +89,13 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
         "`node scripts/frontier-companion.mjs setup --apply`."
     );
   }
-  if (!codexProfile) {
+  if (backend.codexSupported === false) {
+    nextSteps.push(
+      `Codex is unavailable: the "${backend.flavor}" backend at ${backend.baseUrl} does not ` +
+        "serve /v1/responses. Use the pi harness (`--harness pi`). To enable codex, point " +
+        "Frontier at a backend that exposes the OpenAI Responses API."
+    );
+  } else if (!codexProfile) {
     nextSteps.push(
       `Codex has no "${backend.codexProfile}" profile. Provision it (server must be up) with: ` +
         "`node scripts/frontier-companion.mjs setup --apply`."
@@ -134,8 +151,14 @@ export function renderSetupReport(report) {
   lines.push("Backend:");
   lines.push(`  flavor         ${report.backend.flavor}`);
   lines.push(`  baseUrl        ${report.backend.baseUrl}`);
-  lines.push(`  config source  ${report.backend.configSource}`);
-  lines.push(`  codex support  ${report.backend.codexSupported ? "yes" : "no"}`);
+  // configSource is "auto-detect" (the oMLX→Ollama ladder picked the flavor) or
+  // the config layer that selected it ("user-config" / "workspace-config").
+  const ladderNote =
+    report.backend.configSource === "auto-detect"
+      ? "auto-detect (oMLX → Ollama ladder)"
+      : report.backend.configSource;
+  lines.push(`  selected via   ${ladderNote}`);
+  lines.push(`  codex support  ${report.backend.codexSupported ? "yes" : "no (no /v1/responses)"}`);
   lines.push("");
   lines.push("Binaries on PATH:");
   for (const key of ["omlx", "pi", "codex", "node"]) {
@@ -166,10 +189,17 @@ export function renderSetupReport(report) {
   renderApply(lines, report.pi.apply);
   lines.push("");
   lines.push("Codex profile:");
-  lines.push(`  ${report.codex.profile}  ${mark(report.codex.profilePresent)}  (${report.codex.configPath})`);
+  if (report.codex.supported === false) {
+    lines.push(
+      `  unavailable — the ${report.backend.flavor} backend does not serve /v1/responses.`
+    );
+    lines.push("  Use the pi harness (`--harness pi`); the codex path is disabled for this backend.");
+  } else {
+    lines.push(`  ${report.codex.profile}  ${mark(report.codex.profilePresent)}  (${report.codex.configPath})`);
+  }
   renderApply(lines, report.codex.apply);
 
-  if (!report.codex.apply && !report.codex.profilePresent) {
+  if (report.codex.supported !== false && !report.codex.apply && !report.codex.profilePresent) {
     lines.push("");
     lines.push("To enable the codex path, append this to ~/.codex/config.toml");
     lines.push("(or run `setup --apply` to do it additively with a backup):");

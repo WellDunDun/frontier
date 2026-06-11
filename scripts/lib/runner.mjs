@@ -37,8 +37,20 @@ function setupHint(scriptPath) {
 // pi without its provider, refuses up front. The backend descriptor supplies the
 // provider/profile names and base URL so nothing here is hardcoded.
 export async function preflight({ harness, scriptPath, backend }) {
-  const resolved = backend ?? resolveBackend();
+  const resolved = backend ?? (await resolveBackend());
   const problems = [];
+
+  // The codex harness needs the backend to serve /v1/responses. When it does not
+  // (codexSupported === false, e.g. vanilla ollama without a responses shim),
+  // refuse up front with an actionable message. The pi harness is unaffected.
+  if (harness === "codex" && resolved.codexSupported === false) {
+    problems.push(
+      `The "${resolved.flavor}" backend at ${resolved.baseUrl} does not serve ` +
+        `/v1/responses, which the codex harness requires. Use the pi harness ` +
+        `instead (--harness pi), or point Frontier at a backend that exposes the ` +
+        `OpenAI Responses API.`
+    );
+  }
 
   if (harness === "pi" && !piOmlxProviderPresent(resolved)) {
     problems.push(
@@ -46,7 +58,7 @@ export async function preflight({ harness, scriptPath, backend }) {
         `Run: ${setupHint(scriptPath)}`
     );
   }
-  if (harness === "codex" && !codexProfilePresent(resolved)) {
+  if (harness === "codex" && resolved.codexSupported !== false && !codexProfilePresent(resolved)) {
     problems.push(
       `Codex has no "${resolved.codexProfile}" profile + ${resolved.piProvider} provider ` +
         `in ~/.codex/config.toml. Run: ${setupHint(scriptPath)}`
@@ -89,7 +101,7 @@ export async function runHarness({
   timeoutMs,
   backend
 }) {
-  const resolved = backend ?? resolveBackend({ workspaceRoot });
+  const resolved = backend ?? (await resolveBackend({ workspaceRoot }));
   if (harness === "pi") {
     return runPi({ model, write, prompt, cwd, timeoutMs, backend: resolved });
   }

@@ -127,7 +127,7 @@ async function handleTask(argv) {
   // Structural guardrail: refuse before launching if provider config is missing
   // or the local server is down. This makes a cloud fallback impossible. The
   // resolved backend is reused for the run so config precedence is consistent.
-  const backend = resolveBackend({ workspaceRoot });
+  const backend = await resolveBackend({ workspaceRoot });
   const check = await preflight({ harness, scriptPath: SCRIPT_PATH, backend });
   if (!check.ok) {
     process.stderr.write(`${check.problems.join("\n")}\n`);

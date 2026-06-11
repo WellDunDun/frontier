@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { modelsUrlFor } from "./backend.mjs";
+import { modelsUrlFor, OLLAMA_DEFAULT_CONTEXT_WINDOW } from "./backend.mjs";
 import { runCommand } from "./process.mjs";
 
 // =============================================================================
@@ -89,11 +89,24 @@ async function fetchBackendJson(url, backend, timeoutMs) {
   }
 }
 
-// The model selected in the backend's GUI surfaces as the server's loaded model.
+// The model selected in the backend surfaces as the server's loaded/active model.
 // Resolve at call time so delegation always follows the user's selection instead
-// of a hardcoded id. Falls back to the server's default model when nothing (or
-// more than one thing) is loaded.
+// of a hardcoded id. The resolution endpoint and response shape are flavor-
+// specific, so this dispatches on backend.flavor. Returns null when nothing can
+// be resolved; the runner's last-resort/refusal path handles null.
+//
+// (Name kept as fetchOmlxActiveModel for call-site stability across runner/setup;
+// it is now backend-flavor-aware, not omlx-only.)
 export async function fetchOmlxActiveModel(backend, timeoutMs = 4000) {
+  if (backend?.flavor === "ollama") {
+    return fetchOllamaActiveModel(backend, timeoutMs);
+  }
+  return fetchOmlxStatusActiveModel(backend, timeoutMs);
+}
+
+// oMLX active model: GET /api/status → loaded_models (the GUI selection; use when
+// exactly one) else default_model. Unchanged from Phase 1.
+async function fetchOmlxStatusActiveModel(backend, timeoutMs) {
   if (!backend?.statusUrl) {
     return null;
   }
@@ -113,14 +126,60 @@ export async function fetchOmlxActiveModel(backend, timeoutMs = 4000) {
   return loaded[0] ?? null;
 }
 
-// Chat-capable models the server currently serves. Utility models (e.g. the
-// document converter) report no context length and are excluded.
+// Ollama active model ladder (spec): GET /api/ps → models[].name (loaded; use
+// when exactly one) → config defaultModel → /v1/models single entry → null.
+async function fetchOllamaActiveModel(backend, timeoutMs) {
+  if (backend?.activeUrl) {
+    const ps = await fetchBackendJson(backend.activeUrl, backend, timeoutMs);
+    const loaded = Array.isArray(ps?.models)
+      ? ps.models.map((m) => m?.name).filter((n) => typeof n === "string" && n)
+      : [];
+    if (loaded.length === 1) {
+      return loaded[0];
+    }
+  }
+  if (typeof backend?.defaultModel === "string" && backend.defaultModel) {
+    return backend.defaultModel;
+  }
+  const models = await fetchOmlxModels(backend, timeoutMs);
+  if (models.length === 1) {
+    return models[0].id;
+  }
+  return null;
+}
+
+// Chat-capable models the server currently serves. Dispatches on flavor:
+//   omlx   — GET /v1/models; utility models (e.g. the document converter) report
+//            no context length (max_model_len == null) and are excluded.
+//   ollama — GET /api/tags → models[].name (fallback /v1/models). The basic tags
+//            shape carries no context-window info, so a sensible default is used.
 export async function fetchOmlxModels(backend, timeoutMs = 4000) {
+  if (backend?.flavor === "ollama") {
+    return fetchOllamaModels(backend, timeoutMs);
+  }
   const list = await fetchBackendJson(modelsUrlFor(backend.baseUrl), backend, timeoutMs);
   const data = Array.isArray(list?.data) ? list.data : [];
   return data
     .filter((m) => typeof m?.id === "string" && m.id && m.max_model_len != null)
     .map((m) => ({ id: m.id, contextWindow: m.max_model_len }));
+}
+
+async function fetchOllamaModels(backend, timeoutMs) {
+  if (backend?.tagsUrl) {
+    const tags = await fetchBackendJson(backend.tagsUrl, backend, timeoutMs);
+    const names = Array.isArray(tags?.models)
+      ? tags.models.map((m) => m?.name).filter((n) => typeof n === "string" && n)
+      : [];
+    if (names.length > 0) {
+      return names.map((id) => ({ id, contextWindow: OLLAMA_DEFAULT_CONTEXT_WINDOW }));
+    }
+  }
+  // Fallback: OpenAI-compatible /v1/models (entries are { id }, no context info).
+  const list = await fetchBackendJson(modelsUrlFor(backend.baseUrl), backend, timeoutMs);
+  const data = Array.isArray(list?.data) ? list.data : [];
+  return data
+    .filter((m) => typeof m?.id === "string" && m.id)
+    .map((m) => ({ id: m.id, contextWindow: OLLAMA_DEFAULT_CONTEXT_WINDOW }));
 }
 
 // -----------------------------------------------------------------------------
@@ -141,6 +200,21 @@ function piModelEntry(serverModel, known) {
         reasoning: false,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
       };
+}
+
+// Resolve the apiKey value to write into pi's provider entry. When the backend
+// has an env key, reference it (`$NAME`) so the secret is injected from the child
+// env, never inlined. When it does not (e.g. local ollama), pi still requires a
+// non-empty apiKey, so preserve any existing value or fall back to a stub equal
+// to the provider name (the conventional ollama stub is "ollama").
+function piProviderApiKey(backend, existingApiKey) {
+  if (backend.envKey) {
+    return `$${backend.envKey}`;
+  }
+  if (typeof existingApiKey === "string" && existingApiKey) {
+    return existingApiKey;
+  }
+  return backend.piProvider;
 }
 
 // Mirror the server's chat models into pi's provider entry so pi can resolve
@@ -226,12 +300,15 @@ export function applyPiConfig(backend, serverModels, piModelsPath = PI_MODELS_PA
     : existingModels;
 
   // The provider's apiKey references the backend env key so pi authenticates
-  // from the injected child env (never an inline secret).
+  // from the injected child env (never an inline secret). Pi requires SOME
+  // apiKey value in a provider entry even when the backend needs no real auth
+  // (e.g. local ollama); the conventional stub is the provider name. Precedence:
+  // env-key reference > preserved existing value > stub.
   config.providers[providerName] = {
     ...existingProvider,
     name: existingProvider.name ?? `${backend.flavor} (local)`,
     baseUrl: backend.baseUrl,
-    apiKey: backend.envKey ? `$${backend.envKey}` : existingProvider.apiKey ?? "",
+    apiKey: piProviderApiKey(backend, existingProvider.apiKey),
     models
   };
 
