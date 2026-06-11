@@ -6,8 +6,13 @@ Frontier is early-stage infrastructure for harness/model delegation across confi
 
 1. Use Node 20 or newer.
 2. Install with `npm ci`.
-3. Run `npm run check` before opening a pull request.
-4. Validate the marketplace and plugin locally with `claude plugin validate .` and `claude plugin validate plugins/frontier` when changing commands, agents, hooks, skills, or plugin manifests.
+3. Read `AGENTS.md` for the repo map, invariants, and targeted test matrix.
+4. Run targeted tests while developing.
+5. Run `npm run check` before opening a pull request.
+6. Validate the marketplace and plugin locally with `claude plugin validate .` and `claude plugin validate plugins/frontier` when changing commands, agents, hooks, shipped plugin skills, or plugin manifests.
+
+Repo-local development skills for coding agents live in `.agents/skills/`. These
+are maintenance workflows, not shipped plugin skills.
 
 ## Architecture Rules
 
