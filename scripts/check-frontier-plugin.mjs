@@ -41,6 +41,15 @@ async function readText(relPath) {
   return readFile(path.join(repoRoot, relPath), "utf8");
 }
 
+async function readJson(relPath) {
+  try {
+    return JSON.parse(await readText(relPath));
+  } catch (error) {
+    fail(`${relPath}: invalid JSON: ${error.message}`);
+    return null;
+  }
+}
+
 // Parse top-level frontmatter keys. Returns null on malformed frontmatter.
 function parseFrontmatter(relPath, body) {
   if (!body.startsWith("---\n")) {
@@ -145,6 +154,10 @@ async function checkRequiredFiles() {
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/ISSUE_TEMPLATE/feature_request.yml",
     ".github/PULL_REQUEST_TEMPLATE.md",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    ".codex-plugin/plugin.json",
+    "package.json",
     "scripts/frontier-companion.mjs",
     "agents/frontier-worker.md",
     "commands/delegate.md",
@@ -160,6 +173,59 @@ async function checkRequiredFiles() {
     if (!(await exists(relPath))) {
       fail(`${relPath}: required file is missing`);
     }
+  }
+}
+
+async function checkMarketplaceCatalog() {
+  const pluginRel = ".claude-plugin/plugin.json";
+  const marketplaceRel = ".claude-plugin/marketplace.json";
+  if (!(await exists(pluginRel)) || !(await exists(marketplaceRel))) {
+    return;
+  }
+
+  const plugin = await readJson(pluginRel);
+  const marketplace = await readJson(marketplaceRel);
+  if (!plugin || !marketplace) {
+    return;
+  }
+
+  if (marketplace.name !== "frontier-marketplace") {
+    fail(`${marketplaceRel}: marketplace name must be frontier-marketplace`);
+  }
+  if (marketplace.version !== plugin.version) {
+    fail(`${marketplaceRel}: marketplace version must match plugin version ${plugin.version}`);
+  }
+  if (marketplace.owner?.name !== plugin.author?.name) {
+    fail(`${marketplaceRel}: owner.name must match plugin author.name`);
+  }
+  if (!Array.isArray(marketplace.plugins) || marketplace.plugins.length !== 1) {
+    fail(`${marketplaceRel}: must list exactly one plugin`);
+    return;
+  }
+
+  const entry = marketplace.plugins[0];
+  const expectedFields = [
+    ["name", plugin.name],
+    ["displayName", plugin.displayName],
+    ["description", plugin.description],
+    ["version", plugin.version],
+    ["homepage", plugin.homepage],
+    ["repository", plugin.repository],
+    ["license", plugin.license]
+  ];
+  for (const [field, expected] of expectedFields) {
+    if (entry[field] !== expected) {
+      fail(`${marketplaceRel}: plugins[0].${field} must match plugin.json (${expected})`);
+    }
+  }
+  if (entry.author?.name !== plugin.author?.name) {
+    fail(`${marketplaceRel}: plugins[0].author.name must match plugin author.name`);
+  }
+  if (entry.source !== "./") {
+    fail(`${marketplaceRel}: plugins[0].source must be ./ so the hosted marketplace installs this repo`);
+  }
+  if (!Array.isArray(entry.tags) || entry.tags.length === 0) {
+    fail(`${marketplaceRel}: plugins[0].tags must list searchable marketplace tags`);
   }
 }
 
@@ -239,6 +305,7 @@ function checkNoTrackedLocalWorktrees() {
 
 async function main() {
   await checkRequiredFiles();
+  await checkMarketplaceCatalog();
   await checkAgents();
   await checkSkills();
   await checkScriptsParse();

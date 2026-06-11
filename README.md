@@ -8,8 +8,8 @@ need to delegate bounded work to other harnesses, models, and providers. It
 starts with Claude Code and Codex plugin surfaces plus a deterministic companion
 CLI that routes work through harness adapters such as Pi and Codex.
 
-Status: early public preview. The runtime is usable, but provider support and
-plugin packaging are still evolving.
+Status: early public preview. The runtime is usable, but provider support is
+still evolving.
 
 The working pattern is simple: keep planning, tradeoffs, synthesis, and final
 review with the frontier orchestrator; delegate bounded research,
@@ -18,17 +18,12 @@ Provider mechanics are configuration, never baked into prompts.
 
 ## Get Started
 
-During development, load Frontier from a checkout:
+Install Frontier from its Claude Code marketplace:
 
-```sh
-git clone https://github.com/WellDunDun/frontier.git
-cd frontier
-npm ci
-npm run check
-claude --plugin-dir .
-```
+    /plugin marketplace add WellDunDun/frontier
+    /plugin install frontier@frontier-marketplace
 
-Then, in Claude Code:
+Then configure the worker backend:
 
 1. Choose and start or configure a backend:
 
@@ -59,8 +54,7 @@ Then, in Claude Code:
 
        /frontier:delegate reply with OK
 
-`--plugin-dir` is a local development and testing path while Frontier is in
-early preview.
+The checkout-based `--plugin-dir` flow is only needed for local development.
 
 ## Examples
 
@@ -243,12 +237,12 @@ Load the plugin from this checkout while iterating:
 Then run `/agents` in Claude Code and confirm `frontier-worker` is listed, and
 `/help` to confirm the five `frontier:` commands.
 
-Validate the plugin:
+Validate the marketplace manifest:
 
     claude plugin validate .
 
-Run the functional check (frontmatter, required files, script syntax, forbidden
-flags):
+Run the functional check (plugin metadata, marketplace consistency,
+frontmatter, required files, script syntax, forbidden flags):
 
     npm run check
 

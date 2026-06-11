@@ -1,0 +1,25 @@
+{
+  "name": "frontier-marketplace",
+  "description": "Claude Code plugin marketplace for Frontier orchestration tools.",
+  "version": "0.1.0",
+  "owner": {
+    "name": "WellDunDun"
+  },
+  "plugins": [
+    {
+      "name": "frontier",
+      "displayName": "Frontier",
+      "description": "Frontier orchestration runtime for delegating work across harnesses, models, and providers.",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "WellDunDun"
+      },
+      "homepage": "https://github.com/WellDunDun/frontier",
+      "repository": "https://github.com/WellDunDun/frontier",
+      "license": "Apache-2.0",
+      "category": "Productivity",
+      "tags": ["orchestration", "harnesses", "models", "providers"]
+    }
+  ]
+}
