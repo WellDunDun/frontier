@@ -2,61 +2,55 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { modelsUrlFor } from "./backend.mjs";
 import { runCommand } from "./process.mjs";
 
 // =============================================================================
 // All provider / CLI mechanics live here, in deterministic Node. Nothing in an
 // agent or command prompt file should ever hand-roll a pi or codex CLI string.
+//
+// Backend-specific values (base URL, env key, provider/profile names, model id)
+// are NOT hardcoded here — they arrive via the backend descriptor resolved in
+// backend.mjs. Functions take the backend (or a baseUrl/apiKey pair) so a new
+// flavor needs no changes in this file.
 // =============================================================================
-
-export const OMLX_BASE_URL = "http://127.0.0.1:8000/v1";
-export const OMLX_MODELS_URL = `${OMLX_BASE_URL}/models`;
-export const OMLX_STATUS_URL = `${OMLX_BASE_URL.replace(/\/v1$/, "")}/api/status`;
-export const PI_PROVIDER_DEFAULT = "omlx";
-export const CODEX_PROFILE = "frontier-omlx";
 
 const PI_MODELS_PATH = path.join(os.homedir(), ".pi", "agent", "models.json");
 const CODEX_CONFIG_PATH = path.join(os.homedir(), ".codex", "config.toml");
-const OMLX_SETTINGS_PATH = path.join(os.homedir(), ".omlx", "settings.json");
-
-// Default model the codex profile points at. The 12B Gemma is the model pi's
-// omlx provider also targets; keep the two paths on the same local model.
-const CODEX_DEFAULT_MODEL = "mlx-community--gemma-4-12B-it-8bit";
 
 // -----------------------------------------------------------------------------
-// oMLX server health
+// Auth helpers
 // -----------------------------------------------------------------------------
 
-// The oMLX server requires an API key. We read it from ~/.omlx/settings.json so
-// the health probe can authenticate. A 401/200 both prove the server is alive;
-// only a connection failure means it is down.
-export function readOmlxApiKey() {
-  try {
-    const settings = JSON.parse(fs.readFileSync(OMLX_SETTINGS_PATH, "utf8"));
-    const key = settings?.auth?.api_key;
-    return typeof key === "string" && key ? key : null;
-  } catch {
-    return null;
-  }
+// The backend descriptor already carries the resolved apiKey (read from the
+// backend's settings or config). Header-building is centralized so every probe
+// authenticates identically. A null key means "no auth" (e.g. local ollama).
+function authHeaders(backend) {
+  const key = backend?.apiKey;
+  return typeof key === "string" && key ? { Authorization: `Bearer ${key}` } : {};
 }
 
-export async function checkOmlxHealth(timeoutMs = 4000) {
-  const apiKey = readOmlxApiKey();
-  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+// -----------------------------------------------------------------------------
+// Server health
+// -----------------------------------------------------------------------------
+
+// Probe the backend's /v1/models endpoint. Any HTTP response (even 401) proves
+// the server is reachable; only a connection failure means it is down.
+export async function checkOmlxHealth(backend, timeoutMs = 4000) {
+  const headers = authHeaders(backend);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(OMLX_MODELS_URL, {
+    const response = await fetch(modelsUrlFor(backend.baseUrl), {
       method: "GET",
       headers,
       signal: controller.signal
     });
-    // Any HTTP response means the server is reachable.
     return {
       reachable: true,
       ok: response.status === 200,
       status: response.status,
-      hasApiKey: Boolean(apiKey),
+      hasApiKey: Boolean(backend?.apiKey),
       detail: response.status === 200 ? "ok" : `HTTP ${response.status}`
     };
   } catch (error) {
@@ -64,8 +58,11 @@ export async function checkOmlxHealth(timeoutMs = 4000) {
       reachable: false,
       ok: false,
       status: null,
-      hasApiKey: Boolean(apiKey),
-      detail: error?.name === "AbortError" ? `timed out after ${timeoutMs}ms` : String(error?.message ?? error)
+      hasApiKey: Boolean(backend?.apiKey),
+      detail:
+        error?.name === "AbortError"
+          ? `timed out after ${timeoutMs}ms`
+          : String(error?.message ?? error)
     };
   } finally {
     clearTimeout(timer);
@@ -73,19 +70,14 @@ export async function checkOmlxHealth(timeoutMs = 4000) {
 }
 
 // -----------------------------------------------------------------------------
-// Dynamic model resolution from the oMLX server
+// Dynamic model resolution from the server
 // -----------------------------------------------------------------------------
 
-function omlxAuthHeaders() {
-  const apiKey = readOmlxApiKey();
-  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
-}
-
-async function fetchOmlxJson(url, timeoutMs) {
+async function fetchBackendJson(url, backend, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { headers: omlxAuthHeaders(), signal: controller.signal });
+    const response = await fetch(url, { headers: authHeaders(backend), signal: controller.signal });
     if (!response.ok) {
       return null;
     }
@@ -97,12 +89,15 @@ async function fetchOmlxJson(url, timeoutMs) {
   }
 }
 
-// The model selected in the oMLX GUI surfaces as the server's loaded model.
-// Resolve at call time so delegation always follows the user's selection
-// instead of a hardcoded id. Falls back to the server's default model when
-// nothing (or more than one thing) is loaded.
-export async function fetchOmlxActiveModel(timeoutMs = 4000) {
-  const status = await fetchOmlxJson(OMLX_STATUS_URL, timeoutMs);
+// The model selected in the backend's GUI surfaces as the server's loaded model.
+// Resolve at call time so delegation always follows the user's selection instead
+// of a hardcoded id. Falls back to the server's default model when nothing (or
+// more than one thing) is loaded.
+export async function fetchOmlxActiveModel(backend, timeoutMs = 4000) {
+  if (!backend?.statusUrl) {
+    return null;
+  }
+  const status = await fetchBackendJson(backend.statusUrl, backend, timeoutMs);
   if (!status) {
     return null;
   }
@@ -120,61 +115,150 @@ export async function fetchOmlxActiveModel(timeoutMs = 4000) {
 
 // Chat-capable models the server currently serves. Utility models (e.g. the
 // document converter) report no context length and are excluded.
-export async function fetchOmlxModels(timeoutMs = 4000) {
-  const list = await fetchOmlxJson(OMLX_MODELS_URL, timeoutMs);
+export async function fetchOmlxModels(backend, timeoutMs = 4000) {
+  const list = await fetchBackendJson(modelsUrlFor(backend.baseUrl), backend, timeoutMs);
   const data = Array.isArray(list?.data) ? list.data : [];
   return data
     .filter((m) => typeof m?.id === "string" && m.id && m.max_model_len != null)
     .map((m) => ({ id: m.id, contextWindow: m.max_model_len }));
 }
 
-// Mirror the server's chat models into pi's omlx provider entry so pi can
-// resolve whichever model the user selects in the oMLX GUI. Rewrites only
-// providers.omlx.models; everything else in models.json is preserved.
-export function syncPiOmlxModels(serverModels) {
+// -----------------------------------------------------------------------------
+// Pi provider configuration (read + provision)
+// -----------------------------------------------------------------------------
+
+// Build a single model entry for pi's provider in the shape pi expects. Reuses
+// an existing entry's fields when the id is already known so manual tweaks are
+// preserved across syncs.
+function piModelEntry(serverModel, known) {
+  return known
+    ? { ...known, contextWindow: serverModel.contextWindow }
+    : {
+        id: serverModel.id,
+        contextWindow: serverModel.contextWindow,
+        maxTokens: 32768,
+        input: ["text"],
+        reasoning: false,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+      };
+}
+
+// Mirror the server's chat models into pi's provider entry so pi can resolve
+// whichever model the user selects in the backend GUI. Rewrites only
+// providers.<piProvider>.models; everything else in models.json is preserved.
+// `piModelsPath` defaults to the real location but is overridable for tests.
+export function syncPiOmlxModels(backend, serverModels, piModelsPath = PI_MODELS_PATH) {
   if (!Array.isArray(serverModels) || serverModels.length === 0) {
     return { synced: false, changed: false, reason: "no server models" };
   }
   try {
-    const config = JSON.parse(fs.readFileSync(PI_MODELS_PATH, "utf8"));
-    const provider = config?.providers?.[PI_PROVIDER_DEFAULT];
+    const config = JSON.parse(fs.readFileSync(piModelsPath, "utf8"));
+    const provider = config?.providers?.[backend.piProvider];
     if (!provider) {
-      return { synced: false, changed: false, reason: "omlx provider missing" };
+      return { synced: false, changed: false, reason: `${backend.piProvider} provider missing` };
     }
     const existing = Array.isArray(provider.models) ? provider.models : [];
     const fingerprint = (models) => JSON.stringify(models.map((m) => [m.id, m.contextWindow]));
-    const next = serverModels.map((m) => {
-      const known = existing.find((e) => e?.id === m.id);
-      return known
-        ? { ...known, contextWindow: m.contextWindow }
-        : {
-            id: m.id,
-            contextWindow: m.contextWindow,
-            maxTokens: 32768,
-            input: ["text"],
-            reasoning: false,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-          };
-    });
+    const next = serverModels.map((m) =>
+      piModelEntry(m, existing.find((e) => e?.id === m.id))
+    );
     if (fingerprint(next) === fingerprint(existing)) {
       return { synced: true, changed: false };
     }
     provider.models = next;
-    fs.writeFileSync(PI_MODELS_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    fs.writeFileSync(piModelsPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
     return { synced: true, changed: true };
   } catch (error) {
     return { synced: false, changed: false, reason: String(error?.message ?? error) };
   }
 }
 
+// Provision pi's provider entry for the backend, creating ~/.pi/agent/models.json
+// (and the provider block) when missing. Existing/unrelated providers are
+// preserved exactly; a timestamped backup is taken before any write. Models are
+// populated from the live server when available. Idempotent: a no-op when the
+// resolved provider entry already matches.
+export function applyPiConfig(backend, serverModels, piModelsPath = PI_MODELS_PATH) {
+  const dir = path.dirname(piModelsPath);
+  fs.mkdirSync(dir, { recursive: true });
+
+  let existingRaw = null;
+  try {
+    existingRaw = fs.readFileSync(piModelsPath, "utf8");
+  } catch {
+    existingRaw = null;
+  }
+
+  let config = {};
+  if (existingRaw != null) {
+    try {
+      config = JSON.parse(existingRaw);
+    } catch {
+      // Refuse to clobber a file we cannot parse; the caller surfaces the reason.
+      return {
+        applied: false,
+        alreadyPresent: false,
+        backupPath: null,
+        configPath: piModelsPath,
+        reason: "existing models.json is not valid JSON"
+      };
+    }
+  }
+  if (!config || typeof config !== "object") {
+    config = {};
+  }
+  if (!config.providers || typeof config.providers !== "object") {
+    config.providers = {};
+  }
+
+  const providerName = backend.piProvider;
+  const before = config.providers[providerName]
+    ? JSON.stringify(config.providers[providerName])
+    : null;
+
+  const existingProvider =
+    config.providers[providerName] && typeof config.providers[providerName] === "object"
+      ? config.providers[providerName]
+      : {};
+  const existingModels = Array.isArray(existingProvider.models) ? existingProvider.models : [];
+  const models = Array.isArray(serverModels)
+    ? serverModels.map((m) => piModelEntry(m, existingModels.find((e) => e?.id === m.id)))
+    : existingModels;
+
+  // The provider's apiKey references the backend env key so pi authenticates
+  // from the injected child env (never an inline secret).
+  config.providers[providerName] = {
+    ...existingProvider,
+    name: existingProvider.name ?? `${backend.flavor} (local)`,
+    baseUrl: backend.baseUrl,
+    apiKey: backend.envKey ? `$${backend.envKey}` : existingProvider.apiKey ?? "",
+    models
+  };
+
+  const after = JSON.stringify(config.providers[providerName]);
+  if (before != null && before === after) {
+    return { applied: false, alreadyPresent: true, backupPath: null, configPath: piModelsPath };
+  }
+
+  let backupPath = null;
+  if (existingRaw != null) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    backupPath = `${piModelsPath}.frontier-backup-${stamp}`;
+    fs.writeFileSync(backupPath, existingRaw, "utf8");
+  }
+
+  fs.writeFileSync(piModelsPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  return { applied: true, alreadyPresent: false, backupPath, configPath: piModelsPath };
+}
+
 // -----------------------------------------------------------------------------
 // Provider configuration guardrails (structural no-cloud-fallback)
 // -----------------------------------------------------------------------------
 
-export function piOmlxProviderPresent() {
+export function piOmlxProviderPresent(backend, piModelsPath = PI_MODELS_PATH) {
   try {
-    const config = JSON.parse(fs.readFileSync(PI_MODELS_PATH, "utf8"));
-    const provider = config?.providers?.[PI_PROVIDER_DEFAULT];
+    const config = JSON.parse(fs.readFileSync(piModelsPath, "utf8"));
+    const provider = config?.providers?.[backend.piProvider];
     return Boolean(provider && provider.baseUrl);
   } catch {
     return false;
@@ -184,28 +268,31 @@ export function piOmlxProviderPresent() {
 // Pi resolves its model from user-level settings (~/.pi/agent/settings.json)
 // when only --provider is passed, which silently routes to whatever default
 // provider the user last picked — including cloud ones. Always pin --model to
-// the omlx provider's configured entry so that fallback path cannot trigger.
-export function piOmlxDefaultModel() {
+// the provider's configured entry so that fallback path cannot trigger.
+export function piOmlxDefaultModel(backend, piModelsPath = PI_MODELS_PATH) {
   try {
-    const config = JSON.parse(fs.readFileSync(PI_MODELS_PATH, "utf8"));
-    const id = config?.providers?.[PI_PROVIDER_DEFAULT]?.models?.[0]?.id;
+    const config = JSON.parse(fs.readFileSync(piModelsPath, "utf8"));
+    const id = config?.providers?.[backend.piProvider]?.models?.[0]?.id;
     return typeof id === "string" && id ? id : null;
   } catch {
     return null;
   }
 }
 
-export function codexProfilePresent() {
-  const toml = readCodexConfig();
+export function codexProfilePresent(backend, codexConfigPath = CODEX_CONFIG_PATH) {
+  const toml = readCodexConfig(codexConfigPath);
   if (toml == null) {
     return false;
   }
-  return tomlHasTable(toml, `profiles.${CODEX_PROFILE}`) && tomlHasTable(toml, "model_providers.omlx");
+  return (
+    tomlHasTable(toml, `profiles.${backend.codexProfile}`) &&
+    tomlHasTable(toml, `model_providers.${backend.piProvider}`)
+  );
 }
 
-export function readCodexConfig() {
+export function readCodexConfig(codexConfigPath = CODEX_CONFIG_PATH) {
   try {
-    return fs.readFileSync(CODEX_CONFIG_PATH, "utf8");
+    return fs.readFileSync(codexConfigPath, "utf8");
   } catch {
     return null;
   }
@@ -223,50 +310,58 @@ function tomlHasTable(toml, tableName) {
 // Codex config setup (additive, idempotent, backed up)
 // -----------------------------------------------------------------------------
 
-export function buildCodexConfigBlock() {
-  // oMLX exposes the OpenAI Responses API at /v1/responses, and codex >= 0.130
-  // requires wire_api = "responses" (it rejects "chat"). env_key points codex at
-  // the OMLX_API_KEY environment variable for bearer auth.
-  return [
+// Build the additive codex provider + profile block for the backend. The model
+// is resolved from the live server (no hardcoded id); env_key is only emitted
+// when the backend actually has one. wire_api = "responses" because the server
+// exposes the OpenAI Responses API at /v1/responses and codex >= 0.130 rejects
+// "chat".
+export function buildCodexConfigBlock(backend, model) {
+  const lines = [
     "",
-    "# --- Frontier: local oMLX provider (added by frontier-companion setup) ---",
-    "[model_providers.omlx]",
-    'name = "oMLX (local)"',
-    `base_url = "${OMLX_BASE_URL}"`,
-    'wire_api = "responses"',
-    'env_key = "OMLX_API_KEY"',
-    "",
-    "[profiles.frontier-omlx]",
-    'model_provider = "omlx"',
-    `model = "${CODEX_DEFAULT_MODEL}"`,
-    ""
-  ].join("\n");
+    "# --- Frontier: local provider (added by frontier-companion setup) ---",
+    `[model_providers.${backend.piProvider}]`,
+    `name = "${backend.flavor} (local)"`,
+    `base_url = "${backend.baseUrl}"`,
+    'wire_api = "responses"'
+  ];
+  if (backend.envKey) {
+    lines.push(`env_key = "${backend.envKey}"`);
+  }
+  lines.push("");
+  lines.push(`[profiles.${backend.codexProfile}]`);
+  lines.push(`model_provider = "${backend.piProvider}"`);
+  if (typeof model === "string" && model) {
+    lines.push(`model = "${model}"`);
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 // Apply the codex provider + profile additively. Never rewrites existing
 // content. Backs up the config to a timestamped copy first. Idempotent: if the
-// entries already exist, it is a no-op.
-export function applyCodexConfig() {
-  const existing = readCodexConfig();
-  const dir = path.dirname(CODEX_CONFIG_PATH);
+// entries already exist, it is a no-op. `model` is resolved from the live server
+// by the caller (setup), so no model id is hardcoded anywhere.
+export function applyCodexConfig(backend, model, codexConfigPath = CODEX_CONFIG_PATH) {
+  const existing = readCodexConfig(codexConfigPath);
+  const dir = path.dirname(codexConfigPath);
   fs.mkdirSync(dir, { recursive: true });
 
-  if (existing != null && codexProfilePresent()) {
-    return { applied: false, alreadyPresent: true, backupPath: null, configPath: CODEX_CONFIG_PATH };
+  if (existing != null && codexProfilePresent(backend, codexConfigPath)) {
+    return { applied: false, alreadyPresent: true, backupPath: null, configPath: codexConfigPath };
   }
 
   let backupPath = null;
   if (existing != null) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    backupPath = `${CODEX_CONFIG_PATH}.frontier-backup-${stamp}`;
-    fs.copyFileSync(CODEX_CONFIG_PATH, backupPath);
+    backupPath = `${codexConfigPath}.frontier-backup-${stamp}`;
+    fs.copyFileSync(codexConfigPath, backupPath);
   }
 
-  const block = buildCodexConfigBlock();
+  const block = buildCodexConfigBlock(backend, model);
   const base = existing == null ? "" : existing.endsWith("\n") ? existing : `${existing}\n`;
-  fs.writeFileSync(CODEX_CONFIG_PATH, `${base}${block}`, "utf8");
+  fs.writeFileSync(codexConfigPath, `${base}${block}`, "utf8");
 
-  return { applied: true, alreadyPresent: false, backupPath, configPath: CODEX_CONFIG_PATH };
+  return { applied: true, alreadyPresent: false, backupPath, configPath: codexConfigPath };
 }
 
 // -----------------------------------------------------------------------------
@@ -278,14 +373,7 @@ const READ_ONLY_PREAMBLE =
   "Inspect and report only.\n\n";
 
 export function buildPiArgs({ provider, model, write, prompt }) {
-  const args = [
-    "--provider",
-    provider,
-    "--no-session",
-    "--mode",
-    "json",
-    "--print"
-  ];
+  const args = ["--provider", provider, "--no-session", "--mode", "json", "--print"];
   if (model) {
     args.push("--model", model);
   }
@@ -415,11 +503,11 @@ function pickAssistantText(value) {
 // Codex invocation
 // -----------------------------------------------------------------------------
 
-export function buildCodexArgs({ write, lastMessageFile, prompt, model }) {
+export function buildCodexArgs({ write, lastMessageFile, prompt, model, profile }) {
   // codex exec rejects the interactive approval flag, so it is never passed
   // here. Never use a bare -m without the profile: the profile is what binds
-  // codex to the local oMLX provider, preventing a silent cloud fallback.
-  // With the profile in place, -m only swaps which local model is requested.
+  // codex to the local provider, preventing a silent cloud fallback. With the
+  // profile in place, -m only swaps which local model is requested.
   const args = [
     "exec",
     "--ephemeral",
@@ -427,7 +515,7 @@ export function buildCodexArgs({ write, lastMessageFile, prompt, model }) {
     "--sandbox",
     write ? "workspace-write" : "read-only",
     "--profile",
-    CODEX_PROFILE,
+    profile,
     "--output-last-message",
     lastMessageFile,
     "--json"
@@ -474,6 +562,5 @@ export function probeBinaries() {
 
 export const paths = {
   piModels: PI_MODELS_PATH,
-  codexConfig: CODEX_CONFIG_PATH,
-  omlxSettings: OMLX_SETTINGS_PATH
+  codexConfig: CODEX_CONFIG_PATH
 };

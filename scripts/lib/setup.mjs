@@ -1,26 +1,55 @@
+import { resolveBackend } from "./backend.mjs";
 import {
   applyCodexConfig,
+  applyPiConfig,
   buildCodexConfigBlock,
-  CODEX_PROFILE,
   checkOmlxHealth,
   codexProfilePresent,
+  fetchOmlxActiveModel,
+  fetchOmlxModels,
   paths,
   piOmlxProviderPresent,
   probeBinaries
 } from "./harness.mjs";
 
-// Build the setup diagnosis. With applyCodex=true, additively install the codex
-// provider+profile (backed up first) before reporting.
-export async function buildSetupReport({ applyCodex = false } = {}) {
+// Build the setup diagnosis for the resolved backend. With apply=true, additively
+// provision BOTH harnesses (Pi provider entry + Codex provider/profile), each
+// backed up first, before reporting. Applying requires the server to be up so
+// the model list and active model can be read from it (no hardcoded model ids).
+export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
+  const backend = resolveBackend({ workspaceRoot });
   const binaries = probeBinaries();
-  const piProvider = piOmlxProviderPresent();
+  const health = await checkOmlxHealth(backend);
 
-  let codexApply = null;
-  if (applyCodex) {
-    codexApply = applyCodexConfig();
+  // Read live server state when reachable: chat models + the active model. These
+  // feed both the report and the provisioning step.
+  let serverModels = [];
+  let activeModel = null;
+  if (health.reachable) {
+    serverModels = await fetchOmlxModels(backend);
+    activeModel = await fetchOmlxActiveModel(backend);
   }
-  const codexProfile = codexProfilePresent();
-  const health = await checkOmlxHealth();
+
+  // Provisioning. Both harnesses are provisioned together when --apply is given.
+  // We require the server to be up so models are populated from it; if it is
+  // down we skip applying and say so.
+  let piApply = null;
+  let codexApply = null;
+  if (apply) {
+    if (!health.reachable) {
+      piApply = { applied: false, alreadyPresent: false, backupPath: null, reason: "server unreachable" };
+      codexApply = { applied: false, alreadyPresent: false, backupPath: null, reason: "server unreachable" };
+    } else {
+      piApply = applyPiConfig(backend, serverModels);
+      // Codex's profile model comes from the live server (active model preferred,
+      // else the single chat model); -m overrides at run time regardless.
+      const codexModel = activeModel ?? (serverModels.length === 1 ? serverModels[0].id : null);
+      codexApply = applyCodexConfig(backend, codexModel);
+    }
+  }
+
+  const piProvider = piOmlxProviderPresent(backend);
+  const codexProfile = codexProfilePresent(backend);
 
   const ready =
     binaries.omlx.available &&
@@ -40,30 +69,57 @@ export async function buildSetupReport({ applyCodex = false } = {}) {
     nextSteps.push("Install / expose codex on PATH.");
   }
   if (!health.reachable) {
-    nextSteps.push("Start the oMLX server: `omlx start` (or `omlx serve <model>`).");
+    nextSteps.push("Start the local server: `omlx start` (or `omlx serve <model>`).");
   }
   if (!piProvider) {
-    nextSteps.push(`Add an "omlx" provider to ${paths.piModels}.`);
+    nextSteps.push(
+      `Pi has no "${backend.piProvider}" provider in ${paths.piModels}. ` +
+        "Provision it (server must be up) with: " +
+        "`node scripts/frontier-companion.mjs setup --apply`."
+    );
   }
   if (!codexProfile) {
     nextSteps.push(
-      "Codex has no frontier-omlx profile. Apply it with: " +
-        "`node scripts/frontier-companion.mjs setup --apply-codex`."
+      `Codex has no "${backend.codexProfile}" profile. Provision it (server must be up) with: ` +
+        "`node scripts/frontier-companion.mjs setup --apply`."
     );
+  }
+  if (apply && !health.reachable) {
+    nextSteps.push("Apply was requested but skipped: start the server, then rerun `setup --apply`.");
   }
 
   return {
     ready,
+    backend: {
+      flavor: backend.flavor,
+      baseUrl: backend.baseUrl,
+      envKey: backend.envKey,
+      configSource: backend.configSource,
+      codexSupported: backend.codexSupported
+    },
     binaries,
     omlx: health,
-    pi: { providerPresent: piProvider, modelsPath: paths.piModels },
+    server: {
+      models: serverModels,
+      activeModel
+    },
+    pi: {
+      provider: backend.piProvider,
+      providerPresent: piProvider,
+      modelsPath: paths.piModels,
+      apply: piApply
+    },
     codex: {
-      profile: CODEX_PROFILE,
+      profile: backend.codexProfile,
       profilePresent: codexProfile,
       configPath: paths.codexConfig,
+      supported: backend.codexSupported,
       apply: codexApply,
-      // Always provide the additive TOML so the user can apply manually.
-      proposedToml: buildCodexConfigBlock()
+      // The proposed block uses the active model so a manual paste matches apply.
+      proposedToml: buildCodexConfigBlock(
+        backend,
+        activeModel ?? (serverModels.length === 1 ? serverModels[0].id : null)
+      )
     },
     nextSteps
   };
@@ -75,40 +131,48 @@ export function renderSetupReport(report) {
 
   lines.push(`Frontier setup — ${report.ready ? "READY" : "NOT READY"}`);
   lines.push("");
+  lines.push("Backend:");
+  lines.push(`  flavor         ${report.backend.flavor}`);
+  lines.push(`  baseUrl        ${report.backend.baseUrl}`);
+  lines.push(`  config source  ${report.backend.configSource}`);
+  lines.push(`  codex support  ${report.backend.codexSupported ? "yes" : "no"}`);
+  lines.push("");
   lines.push("Binaries on PATH:");
   for (const key of ["omlx", "pi", "codex", "node"]) {
     const bin = report.binaries[key];
     lines.push(`  ${key.padEnd(6)} ${mark(bin.available)}  ${bin.detail ?? ""}`.trimEnd());
   }
   lines.push("");
-  lines.push("oMLX server (127.0.0.1:8000):");
+  lines.push(`Local server (${report.backend.baseUrl}):`);
   if (report.omlx.reachable) {
     lines.push(`  reachable  (HTTP ${report.omlx.status})${report.omlx.ok ? " — healthy" : ""}`);
+    const models = report.server.models;
+    if (models.length > 0) {
+      lines.push(`  models found (${models.length}):`);
+      for (const m of models) {
+        lines.push(`    - ${m.id}  (context ${m.contextWindow})`);
+      }
+    } else {
+      lines.push("  models found: none (server returned no chat models)");
+    }
+    lines.push(`  active model: ${report.server.activeModel ?? "(none resolved)"}`);
   } else {
     lines.push(`  unreachable — ${report.omlx.detail}`);
     lines.push("  Start it with: omlx start");
   }
   lines.push("");
   lines.push("Pi provider:");
-  lines.push(`  omlx provider  ${mark(report.pi.providerPresent)}  (${report.pi.modelsPath})`);
+  lines.push(`  ${report.pi.provider} provider  ${mark(report.pi.providerPresent)}  (${report.pi.modelsPath})`);
+  renderApply(lines, report.pi.apply);
   lines.push("");
   lines.push("Codex profile:");
-  lines.push(`  frontier-omlx  ${mark(report.codex.profilePresent)}  (${report.codex.configPath})`);
+  lines.push(`  ${report.codex.profile}  ${mark(report.codex.profilePresent)}  (${report.codex.configPath})`);
+  renderApply(lines, report.codex.apply);
 
-  if (report.codex.apply) {
-    const apply = report.codex.apply;
-    if (apply.applied) {
-      lines.push(`  applied additive provider+profile.`);
-      if (apply.backupPath) {
-        lines.push(`  backup saved to: ${apply.backupPath}`);
-      }
-    } else if (apply.alreadyPresent) {
-      lines.push("  already present — no change made.");
-    }
-  } else if (!report.codex.profilePresent) {
+  if (!report.codex.apply && !report.codex.profilePresent) {
     lines.push("");
     lines.push("To enable the codex path, append this to ~/.codex/config.toml");
-    lines.push("(or run `setup --apply-codex` to do it additively with a backup):");
+    lines.push("(or run `setup --apply` to do it additively with a backup):");
     lines.push("");
     for (const line of report.codex.proposedToml.split("\n")) {
       lines.push(`  ${line}`);
@@ -124,4 +188,21 @@ export function renderSetupReport(report) {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+// Render the outcome of an apply attempt for a single harness.
+function renderApply(lines, apply) {
+  if (!apply) {
+    return;
+  }
+  if (apply.applied) {
+    lines.push("  applied additively.");
+    if (apply.backupPath) {
+      lines.push(`  backup saved to: ${apply.backupPath}`);
+    }
+  } else if (apply.alreadyPresent) {
+    lines.push("  already present — no change made.");
+  } else if (apply.reason) {
+    lines.push(`  not applied — ${apply.reason}.`);
+  }
 }

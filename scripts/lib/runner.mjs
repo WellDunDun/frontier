@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolveBackend } from "./backend.mjs";
 import {
   buildCodexArgs,
   buildPiArgs,
@@ -11,11 +12,9 @@ import {
   extractPiFinalMessage,
   fetchOmlxActiveModel,
   fetchOmlxModels,
-  PI_PROVIDER_DEFAULT,
   piOmlxDefaultModel,
   piOmlxProviderPresent,
   readCodexLastMessage,
-  readOmlxApiKey,
   syncPiOmlxModels
 } from "./harness.mjs";
 import {
@@ -33,47 +32,49 @@ function setupHint(scriptPath) {
   return `node "${scriptPath}" setup`;
 }
 
-// Verify provider configuration AND oMLX health before launching. This makes a
+// Verify provider configuration AND server health before launching. This makes a
 // silent cloud fallback structurally impossible: codex without its profile, or
-// pi without its provider, refuses up front.
-export async function preflight({ harness, scriptPath }) {
+// pi without its provider, refuses up front. The backend descriptor supplies the
+// provider/profile names and base URL so nothing here is hardcoded.
+export async function preflight({ harness, scriptPath, backend }) {
+  const resolved = backend ?? resolveBackend();
   const problems = [];
 
-  if (harness === "pi" && !piOmlxProviderPresent()) {
+  if (harness === "pi" && !piOmlxProviderPresent(resolved)) {
     problems.push(
-      `Pi has no "${PI_PROVIDER_DEFAULT}" provider in ~/.pi/agent/models.json. ` +
+      `Pi has no "${resolved.piProvider}" provider in ~/.pi/agent/models.json. ` +
         `Run: ${setupHint(scriptPath)}`
     );
   }
-  if (harness === "codex" && !codexProfilePresent()) {
+  if (harness === "codex" && !codexProfilePresent(resolved)) {
     problems.push(
-      `Codex has no "frontier-omlx" profile + omlx provider in ~/.codex/config.toml. ` +
-        `Run: ${setupHint(scriptPath)}`
+      `Codex has no "${resolved.codexProfile}" profile + ${resolved.piProvider} provider ` +
+        `in ~/.codex/config.toml. Run: ${setupHint(scriptPath)}`
     );
   }
 
-  const health = await checkOmlxHealth();
+  const health = await checkOmlxHealth(resolved);
   if (!health.reachable) {
     problems.push(
-      `oMLX server at 127.0.0.1:8000 is not reachable (${health.detail}). ` +
+      `Local server at ${resolved.baseUrl} is not reachable (${health.detail}). ` +
         `Start it with: omlx start`
     );
   }
 
-  // Keep pi's omlx provider entry in step with what the server actually
-  // serves, so whichever model is selected in the oMLX GUI resolves in pi.
-  if (harness === "pi" && health.reachable && piOmlxProviderPresent()) {
-    syncPiOmlxModels(await fetchOmlxModels());
+  // Keep pi's provider entry in step with what the server actually serves, so
+  // whichever model is selected in the backend GUI resolves in pi.
+  if (harness === "pi" && health.reachable && piOmlxProviderPresent(resolved)) {
+    syncPiOmlxModels(resolved, await fetchOmlxModels(resolved));
   }
 
-  if (harness === "pi" && piOmlxProviderPresent() && !piOmlxDefaultModel()) {
+  if (harness === "pi" && piOmlxProviderPresent(resolved) && !piOmlxDefaultModel(resolved)) {
     problems.push(
-      `Pi's "${PI_PROVIDER_DEFAULT}" provider lists no models in ~/.pi/agent/models.json, ` +
+      `Pi's "${resolved.piProvider}" provider lists no models in ~/.pi/agent/models.json, ` +
         `so the run cannot be pinned to a local model. Run: ${setupHint(scriptPath)}`
     );
   }
 
-  return { ok: problems.length === 0, problems, health };
+  return { ok: problems.length === 0, problems, health, backend: resolved };
 }
 
 // Run the selected harness to completion, returning a normalized result.
@@ -85,40 +86,39 @@ export async function runHarness({
   cwd,
   workspaceRoot,
   jobId,
-  timeoutMs
+  timeoutMs,
+  backend
 }) {
+  const resolved = backend ?? resolveBackend({ workspaceRoot });
   if (harness === "pi") {
-    return runPi({ model, write, prompt, cwd, timeoutMs });
+    return runPi({ model, write, prompt, cwd, timeoutMs, backend: resolved });
   }
   if (harness === "codex") {
-    return runCodex({ model, write, prompt, cwd, workspaceRoot, jobId, timeoutMs });
+    return runCodex({ model, write, prompt, cwd, workspaceRoot, jobId, timeoutMs, backend: resolved });
   }
   throw new Error(`Unknown harness "${harness}". Use pi or codex.`);
 }
 
-// Pi's omlx provider ("apiKey": "$OMLX_API_KEY") and codex's frontier-omlx
-// profile (env_key = "OMLX_API_KEY") both authenticate via this env var.
-// oMLX's interactive tool launcher exports it, but the companion runs the
-// harnesses directly, so inject the key from ~/.omlx/settings.json ourselves.
-function harnessEnv() {
+// Pi's provider (apiKey: "$OMLX_API_KEY") and codex's profile
+// (env_key = "OMLX_API_KEY") both authenticate via the backend's env key. The
+// server's interactive tool launcher exports it, but the companion runs the
+// harnesses directly, so inject the key from the resolved backend ourselves.
+function harnessEnv(backend) {
   const env = { ...process.env };
-  if (!env.OMLX_API_KEY) {
-    const key = readOmlxApiKey();
-    if (key) {
-      env.OMLX_API_KEY = key;
-    }
+  if (backend?.envKey && backend?.apiKey && !env[backend.envKey]) {
+    env[backend.envKey] = backend.apiKey;
   }
   return env;
 }
 
-function spawnAndCapture(command, args, { cwd, timeoutMs }) {
+function spawnAndCapture(command, args, { cwd, timeoutMs, backend }) {
   return new Promise((resolve) => {
     // stdin is ignored (not an open pipe): codex and pi both probe stdin and
     // will block "Reading additional input from stdin..." if it stays open and
     // empty. The prompt is always passed as a CLI argument, never on stdin.
     const child = spawn(command, args, {
       cwd,
-      env: harnessEnv(),
+      env: harnessEnv(backend),
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -155,28 +155,28 @@ function spawnAndCapture(command, args, { cwd, timeoutMs }) {
   });
 }
 
-async function runPi({ model, write, prompt, cwd, timeoutMs }) {
+async function runPi({ model, write, prompt, cwd, timeoutMs, backend }) {
   const piPrompt = buildPiPrompt({ prompt, write });
   // A bare --provider does not stop pi from resolving its user-level default
   // model (which may live on a cloud provider); the model must always be
-  // pinned. Prefer the model currently selected in the oMLX GUI, then fall
+  // pinned. Prefer the model currently selected in the backend GUI, then fall
   // back to pi's provider entry (preflight guarantees it lists a model).
-  const resolvedModel = model ?? (await fetchOmlxActiveModel()) ?? piOmlxDefaultModel();
+  const resolvedModel = model ?? (await fetchOmlxActiveModel(backend)) ?? piOmlxDefaultModel(backend);
   const args = buildPiArgs({
-    provider: PI_PROVIDER_DEFAULT,
+    provider: backend.piProvider,
     model: resolvedModel,
     write,
     prompt: piPrompt
   });
 
-  const result = await spawnAndCapture("pi", args, { cwd, timeoutMs });
+  const result = await spawnAndCapture("pi", args, { cwd, timeoutMs, backend });
   const finalMessage = extractPiFinalMessage(result.stdout);
 
-  // Verify the run actually stayed on the omlx provider. The JSON event
+  // Verify the run actually stayed on the backend's provider. The JSON event
   // stream tags assistant messages with the serving provider; any other value
   // means a silent fallback happened and the result must be refused.
   const providerSeen = result.stdout.match(/"provider"\s*:\s*"([^"]+)"/);
-  if (result.status === 0 && providerSeen && providerSeen[1] !== PI_PROVIDER_DEFAULT) {
+  if (result.status === 0 && providerSeen && providerSeen[1] !== backend.piProvider) {
     return normalizeResult({
       harness: "pi",
       model: resolvedModel ?? null,
@@ -184,7 +184,7 @@ async function runPi({ model, write, prompt, cwd, timeoutMs }) {
       status: 1,
       finalMessage:
         `Refused: pi ran on provider "${providerSeen[1]}" instead of ` +
-        `"${PI_PROVIDER_DEFAULT}". The result was discarded to prevent a ` +
+        `"${backend.piProvider}". The result was discarded to prevent a ` +
         `silent cloud fallback.`,
       rawStdout: result.stdout,
       rawStderr: result.stderr,
@@ -206,16 +206,22 @@ async function runPi({ model, write, prompt, cwd, timeoutMs }) {
   });
 }
 
-async function runCodex({ model, write, prompt, cwd, workspaceRoot, jobId, timeoutMs }) {
+async function runCodex({ model, write, prompt, cwd, workspaceRoot, jobId, timeoutMs, backend }) {
   const jobsDir = resolveJobsDir(workspaceRoot);
   fs.mkdirSync(jobsDir, { recursive: true });
   const lastMessageFile = path.join(jobsDir, `${jobId}.last-message.md`);
 
-  // Follow the model selected in the oMLX GUI; the profile's baked-in model
+  // Follow the model selected in the backend GUI; the profile's baked-in model
   // is only the fallback when the status endpoint is unavailable.
-  const resolvedModel = model ?? (await fetchOmlxActiveModel());
-  const args = buildCodexArgs({ write, lastMessageFile, prompt, model: resolvedModel });
-  const result = await spawnAndCapture("codex", args, { cwd, timeoutMs });
+  const resolvedModel = model ?? (await fetchOmlxActiveModel(backend));
+  const args = buildCodexArgs({
+    write,
+    lastMessageFile,
+    prompt,
+    model: resolvedModel,
+    profile: backend.codexProfile
+  });
+  const result = await spawnAndCapture("codex", args, { cwd, timeoutMs, backend });
   const finalFromFile = readCodexLastMessage(lastMessageFile);
   const finalMessage = finalFromFile || extractCodexJsonFinal(result.stdout);
 

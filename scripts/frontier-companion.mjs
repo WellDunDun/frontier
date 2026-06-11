@@ -16,6 +16,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { parseArgs } from "./lib/args.mjs";
+import { resolveBackend } from "./lib/backend.mjs";
 import {
   renderCancel,
   renderJobDetail,
@@ -56,7 +57,9 @@ function printUsage() {
       "  node scripts/frontier-companion.mjs status [jobId] [--json]",
       "  node scripts/frontier-companion.mjs result <jobId> [--json]",
       "  node scripts/frontier-companion.mjs cancel <jobId> [--json]",
-      "  node scripts/frontier-companion.mjs setup [--apply-codex] [--json]",
+      "  node scripts/frontier-companion.mjs setup [--apply] [--json]",
+      "      --apply provisions BOTH harnesses (Pi provider + Codex profile);",
+      "      requires the local server to be up. --apply-codex is a kept alias.",
       ""
     ].join("\n")
   );
@@ -122,8 +125,10 @@ async function handleTask(argv) {
   }
 
   // Structural guardrail: refuse before launching if provider config is missing
-  // or the oMLX server is down. This makes a cloud fallback impossible.
-  const check = await preflight({ harness, scriptPath: SCRIPT_PATH });
+  // or the local server is down. This makes a cloud fallback impossible. The
+  // resolved backend is reused for the run so config precedence is consistent.
+  const backend = resolveBackend({ workspaceRoot });
+  const check = await preflight({ harness, scriptPath: SCRIPT_PATH, backend });
   if (!check.ok) {
     process.stderr.write(`${check.problems.join("\n")}\n`);
     if (options.json) {
@@ -172,7 +177,8 @@ async function handleTask(argv) {
     cwd,
     workspaceRoot,
     jobId,
-    timeoutMs
+    timeoutMs,
+    backend
   });
   recordJobResult(workspaceRoot, jobId, result);
   const job = readJobFile(workspaceRoot, jobId);
@@ -342,10 +348,16 @@ function handleCancel(argv) {
 async function handleSetup(argv) {
   const { options } = parseArgs(argv, {
     valueOptions: ["cwd"],
-    booleanOptions: ["json", "apply-codex"]
+    booleanOptions: ["json", "apply", "apply-codex"]
   });
 
-  const report = await buildSetupReport({ applyCodex: Boolean(options["apply-codex"]) });
+  // --apply provisions both harnesses; --apply-codex is kept as a backward-
+  // compatible alias for the same provisioning flow.
+  const apply = Boolean(options.apply || options["apply-codex"]);
+  const cwd = resolveCwd(options);
+  const workspaceRoot = resolveWorkspaceRoot(cwd);
+
+  const report = await buildSetupReport({ apply, workspaceRoot });
   emit(report, renderSetupReport(report), options.json);
   if (!report.ready) {
     process.exitCode = 1;

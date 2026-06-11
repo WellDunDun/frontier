@@ -40,13 +40,17 @@ and both refuse if the oMLX server is unreachable.
    alternative, `omlx launch <tool>` opens an interactive configure-and-launch
    TUI — run it yourself; the plugin never invokes it.
 
-2. Run setup and apply the Codex profile:
+2. Run setup and provision the Pi provider and Codex profile:
 
        /frontier:setup
 
-   If the Codex `frontier-omlx` profile is missing, accept the prompt to apply
-   it. The apply step backs up `~/.codex/config.toml` first and only appends the
-   provider and profile if they are absent.
+   If the Pi provider or Codex `frontier-omlx` profile is missing, accept the
+   prompt to provision them. The apply step (`--apply`) provisions both harnesses
+   additively: it ensures the `omlx` provider exists in `~/.pi/agent/models.json`
+   and the provider/profile exist in `~/.codex/config.toml`, taking a timestamped
+   backup before any write and preserving unrelated entries. Models — including
+   the Codex profile's model — are read from the live server, so the server must
+   be running when you apply.
 
 3. Smoke test the delegation path:
 
@@ -59,8 +63,9 @@ and both refuse if the oMLX server is unreachable.
 - `/frontier:status [job-id]` — list active and recent jobs, or detail one.
 - `/frontier:result <job-id>` — print a finished job's final output.
 - `/frontier:cancel <job-id>` — cancel a running job.
-- `/frontier:setup [--apply-codex]` — check oMLX, Pi, and Codex readiness and
-  optionally apply the Codex profile.
+- `/frontier:setup [--apply]` — check oMLX, Pi, and Codex readiness and
+  optionally provision the Pi provider and Codex profile (server must be up).
+  `--apply-codex` is kept as a backward-compatible alias for `--apply`.
 
 ## Skills
 
