@@ -18,7 +18,14 @@ Provider mechanics are configuration, never baked into prompts.
 
 ## Why Frontier
 
-Frontier exists because frontier models are becoming simultaneously more
+Frontier exists because model capability and harness ergonomics do not always
+ship together. You may prefer Claude Code, Codex, or another frontier harness as
+your working environment, while wanting to delegate bounded work to models that
+harness does not offer: local oMLX models, Ollama models, OpenAI-compatible
+gateways, or cheaper cloud models. Frontier separates orchestration from model
+access so the harness you like can coordinate the models you choose.
+
+It also exists because frontier models are becoming simultaneously more
 capable, more expensive, and more scarce. Agentic coding does not spend tokens
 only on final reasoning; it burns context on search, retries, logs, dependency
 inspection, implementation attempts, and review loops.
@@ -40,10 +47,10 @@ Teams are already responding to this economics problem. Reporting on
 approval flows, and token caps after surprise AI-agent costs:
 [Business Insider](https://www.businessinsider.com/pylon-ceo-tokenmaxxing-era-coming-to-end-ai-spend-limits-2026-6)
 
-Frontier's answer is orchestration. Keep the strongest frontier model focused on
-planning, judgment, and final review; route bounded scans, summaries,
+Frontier's answer is orchestration. Keep your preferred frontier harness focused
+on planning, judgment, and final review; route bounded scans, summaries,
 implementation attempts, and log reduction to cheaper, local, or specialized
-worker harnesses.
+worker harnesses and models.
 
 ## Get Started
 
