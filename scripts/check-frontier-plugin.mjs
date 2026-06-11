@@ -134,6 +134,17 @@ async function checkSkills() {
 
 async function checkRequiredFiles() {
   const required = [
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "frontier.config.example.json",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ".github/PULL_REQUEST_TEMPLATE.md",
     "scripts/frontier-companion.mjs",
     "agents/frontier-worker.md",
     "commands/delegate.md",

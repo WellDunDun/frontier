@@ -1,9 +1,15 @@
 # Frontier
 
+[![CI](https://github.com/WellDunDun/frontier/actions/workflows/ci.yml/badge.svg)](https://github.com/WellDunDun/frontier/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Frontier is a Claude Code plugin for frontier-model orchestration. Fable (the
 frontier model running in Claude Code) stays the orchestrator; bounded sub-tasks
 are delegated to local models served by oMLX through two harnesses, Pi and
 Codex.
+
+Status: early public preview. The runtime is usable, but provider support and
+Claude Code plugin packaging are still evolving.
 
 The working pattern is simple: keep planning, tradeoffs, synthesis, and final
 review with the frontier model; delegate bounded research, implementation,
@@ -110,6 +116,23 @@ Codex support is detected by probing `/v1/responses`. If your server does not
 serve it, `setup` disables the Codex harness for that backend and the Pi harness
 still works.
 
+A safe starter file is available at `frontier.config.example.json`. Do not
+commit real API keys; prefer `apiKey.env` for any authenticated backend.
+
+## Installation
+
+Until Frontier is published through a plugin registry, load it from a checkout:
+
+```sh
+git clone https://github.com/WellDunDun/frontier.git
+cd frontier
+npm ci
+npm run check
+claude --plugin-dir .
+```
+
+In Claude Code, run `/frontier:setup` before the first delegation.
+
 ## One-time setup
 
 1. Start the oMLX server:
@@ -179,3 +202,13 @@ Run the functional check (frontmatter, required files, script syntax, forbidden
 flags):
 
     npm run check
+
+## Project
+
+- License: Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+- Changes: [CHANGELOG.md](CHANGELOG.md).
+- Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
+- Security reports: [SECURITY.md](SECURITY.md).
+
+Frontier is not affiliated with Anthropic, OpenAI, oMLX, Pi, Codex, or Ollama.
+Those names belong to their respective owners.

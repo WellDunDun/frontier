@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible Frontier bug
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting a bug. Please avoid including secrets, API keys, or private logs."
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Exact steps or commands that reproduce the issue.
+    validations:
+      required: true
+  - type: input
+    id: backend
+    attributes:
+      label: Backend flavor
+      placeholder: omlx, ollama, or openai
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Paste minimal sanitized output. Do not include credentials.

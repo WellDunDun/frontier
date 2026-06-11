@@ -1,12 +1,12 @@
 {
   "name": "frontier",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Claude Code plugin for Fable orchestration and provider-backed local subagents.",
   "author": {
     "name": "WellDunDun"
   },
   "homepage": "https://github.com/WellDunDun/frontier",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["frontier", "claude-code", "fable", "omlx", "subagents"],
   "skills": "./skills/",
   "interface": {

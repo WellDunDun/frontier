@@ -4,5 +4,10 @@
 # Local Claude agent worktrees (never committed)
 .claude/worktrees/
 
+# Local environment files
+.env
+.env.*
+!.env.example
+
 # Node
 node_modules/
