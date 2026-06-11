@@ -23,6 +23,19 @@ Install Frontier from its Claude Code marketplace:
     /plugin marketplace add WellDunDun/frontier
     /plugin install frontier@frontier-marketplace
 
+Or paste this into an agent with terminal access:
+
+```text
+Install Frontier for Claude Code. Run these commands:
+
+claude plugin marketplace add WellDunDun/frontier --scope user --sparse .claude-plugin plugins
+claude plugin install frontier@frontier-marketplace --scope user
+claude plugin list
+
+Then stop and tell me whether Frontier is installed. Do not run provider setup
+yet; I will restart Claude Code if needed and run /frontier:setup myself.
+```
+
 Then configure the worker backend:
 
 1. Choose and start or configure a backend:
