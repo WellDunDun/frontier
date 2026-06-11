@@ -101,7 +101,26 @@ export async function fetchOmlxActiveModel(backend, timeoutMs = 4000) {
   if (backend?.flavor === "ollama") {
     return fetchOllamaActiveModel(backend, timeoutMs);
   }
+  if (backend?.flavor === "openai") {
+    return fetchOpenAiActiveModel(backend, timeoutMs);
+  }
   return fetchOmlxStatusActiveModel(backend, timeoutMs);
+}
+
+// Generic OpenAI-compatible active-model ladder (spec): config defaultModel →
+// /v1/models single entry → null. There is no flavor-specific "loaded model"
+// status endpoint, so the user's config defaultModel is the primary signal; a
+// single served model is an unambiguous fallback. null defers to the runner's
+// existing refusal/last-resort path.
+async function fetchOpenAiActiveModel(backend, timeoutMs) {
+  if (typeof backend?.defaultModel === "string" && backend.defaultModel) {
+    return backend.defaultModel;
+  }
+  const models = await fetchOmlxModels(backend, timeoutMs);
+  if (models.length === 1) {
+    return models[0].id;
+  }
+  return null;
 }
 
 // oMLX active model: GET /api/status → loaded_models (the GUI selection; use when
@@ -157,11 +176,32 @@ export async function fetchOmlxModels(backend, timeoutMs = 4000) {
   if (backend?.flavor === "ollama") {
     return fetchOllamaModels(backend, timeoutMs);
   }
+  if (backend?.flavor === "openai") {
+    return fetchOpenAiModels(backend, timeoutMs);
+  }
   const list = await fetchBackendJson(modelsUrlFor(backend.baseUrl), backend, timeoutMs);
   const data = Array.isArray(list?.data) ? list.data : [];
   return data
     .filter((m) => typeof m?.id === "string" && m.id && m.max_model_len != null)
     .map((m) => ({ id: m.id, contextWindow: m.max_model_len }));
+}
+
+// Generic OpenAI-compatible available models: GET /v1/models → data[].id. Unlike
+// oMLX, a generic server's entries carry no max_model_len/context info, so every
+// listed model is kept (no utility-model filter) and a sensible default context
+// window is used (same default as ollama).
+async function fetchOpenAiModels(backend, timeoutMs) {
+  const list = await fetchBackendJson(modelsUrlFor(backend.baseUrl), backend, timeoutMs);
+  const data = Array.isArray(list?.data) ? list.data : [];
+  return data
+    .filter((m) => typeof m?.id === "string" && m.id)
+    .map((m) => ({
+      id: m.id,
+      contextWindow:
+        typeof m.max_model_len === "number" && m.max_model_len > 0
+          ? m.max_model_len
+          : OLLAMA_DEFAULT_CONTEXT_WINDOW
+    }));
 }
 
 async function fetchOllamaModels(backend, timeoutMs) {

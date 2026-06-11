@@ -59,6 +59,28 @@ function readJsonFile(filePath) {
   }
 }
 
+// Read a Frontier config file strictly. A missing/unreadable file is fine
+// (returns null — that layer simply contributes nothing), but a file that EXISTS
+// yet contains malformed JSON is a hard error naming the file and the parse
+// problem. Config files are explicit, user-authored selections; silently falling
+// through to auto-detect would mask a real mistake (spec Phase 2 item 3).
+function readConfigFileStrict(filePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null; // absent or unreadable — no config at this layer
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Frontier config file ${filePath} is not valid JSON: ${error?.message ?? error}. ` +
+        `Fix the JSON syntax or remove the file.`
+    );
+  }
+}
+
 // Resolve an `apiKey` config spec into a literal value. Accepts
 // { env: "NAME" } | { file: "/path", jsonPath: "a.b" } | { value: "literal" }.
 // Missing / unresolvable → null (no auth).
@@ -85,6 +107,24 @@ function resolveApiKeySpec(spec, env) {
       return typeof value === "string" && value ? value : null;
     }
     return typeof json === "string" && json ? json : null;
+  }
+  return null;
+}
+
+// Classify an apiKey spec by kind for reporting — "env" | "file" | "literal".
+// Returns null for an unrecognized/empty spec. NEVER returns the secret value.
+function apiKeySpecKind(spec) {
+  if (!spec || typeof spec !== "object") {
+    return null;
+  }
+  if (typeof spec.value === "string" && spec.value) {
+    return "literal";
+  }
+  if (typeof spec.env === "string" && spec.env) {
+    return "env";
+  }
+  if (typeof spec.file === "string" && spec.file) {
+    return "file";
   }
   return null;
 }
@@ -302,13 +342,77 @@ function detectOllama() {
   return probeTcp(`http://${OLLAMA_DEFAULT_HOST}:${OLLAMA_DEFAULT_PORT}/v1`);
 }
 
+// Default env var name a file/value apiKey spec is injected through. The
+// harnesses (pi provider entry, codex profile) must reference SOME env var to
+// authenticate; when the user supplies the key as a literal or from a file we
+// expose it to the child process under this name (the runner's harnessEnv does
+// the injection). An { env: NAME } spec uses NAME directly instead.
+const OPENAI_DEFAULT_ENV_KEY = "FRONTIER_API_KEY";
+
+// The openai (generic OpenAI-compatible) flavor. This flavor is config-ONLY:
+// it is never auto-detected (no probe could distinguish it from any other
+// OpenAI server), so it has no detect() and is excluded from the auto-detect
+// ladder. `baseUrl` is required; everything else has a sensible default.
+//
+// envKey rules (spec Phase 2 item 1):
+//   - apiKey { env: NAME }      → envKey = NAME (harnesses reference $NAME)
+//   - apiKey { file } | { value} → envKey = FRONTIER_API_KEY (runner injects it)
+//   - no apiKey                  → envKey = null (keyless, like ollama)
+//
+// codexSupported is probed from the live /v1/responses route; when the server is
+// down the probe returns false (safe default — codex refuses, pi still works).
+async function buildOpenAiBackend({ configOverrides }) {
+  const baseUrl = configOverrides.baseUrl;
+  if (typeof baseUrl !== "string" || !baseUrl) {
+    throw new Error(
+      `Frontier config selects flavor "openai" but is missing "baseUrl". Add the ` +
+        `OpenAI-compatible /v1 root, e.g. "baseUrl": "http://127.0.0.1:1234/v1", ` +
+        `to your frontier.config.json (or ~/.frontier/config.json).`
+    );
+  }
+
+  // configOverrides carries the resolved apiKey value (or null) AND, when an
+  // { env: NAME } spec was used, the env var name it came from (apiKeyEnv).
+  const apiKey = configOverrides.apiKey ?? null;
+  let envKey = null;
+  if (apiKey != null) {
+    envKey = configOverrides.apiKeyEnv ?? OPENAI_DEFAULT_ENV_KEY;
+  }
+
+  const codexSupported = await probeCodexSupported(baseUrl, { apiKey });
+
+  return {
+    flavor: "openai",
+    baseUrl,
+    statusUrl: null,
+    activeUrl: null,
+    tagsUrl: null,
+    envKey,
+    apiKey,
+    defaultModel: configOverrides.defaultModel ?? null,
+    piProvider: configOverrides.piProvider ?? "frontier-local",
+    codexProfile: configOverrides.codexProfile ?? "frontier-local",
+    codexSupported
+  };
+}
+
 // Resolver order is the auto-detect ladder: oMLX first, then Ollama. Object key
-// insertion order is iterated by detectFlavor().
+// insertion order is iterated by detectFlavor(). The openai resolver has no
+// detect() — it is config-only and never participates in auto-detection (see
+// AUTODETECT_FLAVORS, which the ladder iterates instead of every entry).
 const FLAVOR_RESOLVERS = {
   omlx: { detect: detectOmlx, build: buildOmlxBackend },
-  ollama: { detect: detectOllama, build: buildOllamaBackend }
-  // openai resolver registers here in a later phase.
+  ollama: { detect: detectOllama, build: buildOllamaBackend },
+  openai: { detect: null, build: buildOpenAiBackend }
 };
+
+// The set of flavors a config file may name. Unknown values are a hard error
+// (all three flavors now exist; an unknown one is a typo, not a future feature).
+const KNOWN_FLAVORS = new Set(Object.keys(FLAVOR_RESOLVERS));
+
+// Flavors the auto-detect ladder may select, in order. openai is intentionally
+// excluded — it requires an explicit config selection.
+const AUTODETECT_FLAVORS = ["omlx", "ollama"];
 
 // -----------------------------------------------------------------------------
 // Config-file precedence + resolution entry point
@@ -316,20 +420,33 @@ const FLAVOR_RESOLVERS = {
 
 // Read the two config layers and fold their overrides together. Workspace-root
 // config wins over user-level config. A config may select a flavor explicitly
-// (`flavor: "omlx" | "ollama"`); when it names a known flavor, detection is
-// skipped. Unknown flavors fall through to the auto-detect ladder.
+// (`flavor: "omlx" | "ollama" | "openai"`); a known flavor skips auto-detection.
+//
+// Validation (spec Phase 2 item 3): a present-but-malformed config file, or a
+// config naming an UNKNOWN flavor, is a hard error that identifies the offending
+// file — never a silent fall-through to auto-detect.
 function loadConfigOverrides({ workspaceRoot, paths, env }) {
-  const workspaceConfig = workspaceRoot
-    ? readJsonFile(path.join(workspaceRoot, WORKSPACE_CONFIG_NAME))
+  const workspaceConfigPath = workspaceRoot
+    ? path.join(workspaceRoot, WORKSPACE_CONFIG_NAME)
     : null;
-  const userConfig = readJsonFile(paths.userConfig);
+  const workspaceConfig = workspaceConfigPath
+    ? readConfigFileStrict(workspaceConfigPath)
+    : null;
+  const userConfig = readConfigFileStrict(paths.userConfig);
 
   const overrides = { source: "auto-detect" };
-  const apply = (config, source) => {
-    if (!config || typeof config !== "object") {
+  const apply = (config, source, filePath) => {
+    if (config == null) {
       return;
     }
+    if (typeof config !== "object" || Array.isArray(config)) {
+      throw new Error(
+        `Frontier config file ${filePath} must contain a JSON object, ` +
+          `not ${Array.isArray(config) ? "an array" : typeof config}.`
+      );
+    }
     overrides.source = source;
+    overrides.sourcePath = filePath;
     if (typeof config.baseUrl === "string" && config.baseUrl) {
       overrides.baseUrl = config.baseUrl;
     }
@@ -344,15 +461,29 @@ function loadConfigOverrides({ workspaceRoot, paths, env }) {
     }
     if (config.apiKey && typeof config.apiKey === "object") {
       overrides.apiKey = resolveApiKeySpec(config.apiKey, env);
+      // Remember the env var name an { env: NAME } spec referenced; the openai
+      // flavor exposes the resolved key to the harnesses under this name.
+      overrides.apiKeyEnv =
+        typeof config.apiKey.env === "string" && config.apiKey.env
+          ? config.apiKey.env
+          : null;
+      // Classify the spec kind for the setup report (never the value itself).
+      overrides.keySource = apiKeySpecKind(config.apiKey);
     }
     if (typeof config.flavor === "string" && config.flavor) {
+      if (!KNOWN_FLAVORS.has(config.flavor)) {
+        throw new Error(
+          `Frontier config file ${filePath} sets an unknown flavor ` +
+            `"${config.flavor}". Valid flavors: ${[...KNOWN_FLAVORS].join(", ")}.`
+        );
+      }
       overrides.flavor = config.flavor;
     }
   };
 
   // Apply user-level first, then workspace so the latter overrides.
-  apply(userConfig, "user-config");
-  apply(workspaceConfig, "workspace-config");
+  apply(userConfig, "user-config", paths.userConfig);
+  apply(workspaceConfig, "workspace-config", workspaceConfigPath);
   return overrides;
 }
 
@@ -377,10 +508,11 @@ export async function resolveBackend({ workspaceRoot, paths, env } = {}) {
     env: resolvedEnv
   });
 
-  // Flavor selection. An explicit, known flavor in config skips live detection;
-  // otherwise walk the auto-detect ladder.
+  // Flavor selection. A config-named flavor is already validated as known by
+  // loadConfigOverrides (unknown values threw); it skips live detection.
+  // Otherwise walk the auto-detect ladder (which never selects openai).
   let flavor = configOverrides.flavor;
-  if (!flavor || !FLAVOR_RESOLVERS[flavor]) {
+  if (!flavor) {
     flavor = await detectFlavor(resolvedPaths);
   }
 
@@ -390,7 +522,20 @@ export async function resolveBackend({ workspaceRoot, paths, env } = {}) {
     env: resolvedEnv,
     configOverrides
   });
-  return { ...backend, configSource: configOverrides.source };
+  // Key source KIND for the setup report — never the value. When the key came
+  // from a config apiKey spec, use its classified kind; an omlx key read from
+  // ~/.omlx/settings.json reports "settings"; no key at all is "none".
+  let keySource = "none";
+  if (backend.apiKey != null) {
+    keySource = configOverrides.keySource ?? (backend.flavor === "omlx" ? "settings" : "literal");
+  }
+
+  return {
+    ...backend,
+    configSource: configOverrides.source,
+    configSourcePath: configOverrides.sourcePath ?? null,
+    keySource
+  };
 }
 
 // Auto-detect ladder: oMLX (settings file or live port 8000) → Ollama (live port
@@ -398,10 +543,11 @@ export async function resolveBackend({ workspaceRoot, paths, env } = {}) {
 // answers so the descriptor is always materializable (preflight then reports the
 // server as unreachable rather than crashing).
 async function detectFlavor(paths) {
-  for (const [flavor, resolver] of Object.entries(FLAVOR_RESOLVERS)) {
+  for (const flavor of AUTODETECT_FLAVORS) {
+    const resolver = FLAVOR_RESOLVERS[flavor];
     // Detectors run sequentially (ladder order matters: oMLX before Ollama).
     // eslint-disable-next-line no-await-in-loop
-    if (await resolver.detect({ paths })) {
+    if (resolver?.detect && (await resolver.detect({ paths }))) {
       return flavor;
     }
   }

@@ -112,6 +112,8 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
       baseUrl: backend.baseUrl,
       envKey: backend.envKey,
       configSource: backend.configSource,
+      configSourcePath: backend.configSourcePath ?? null,
+      keySource: backend.keySource ?? (backend.apiKey != null ? "literal" : "none"),
       codexSupported: backend.codexSupported
     },
     binaries,
@@ -152,12 +154,17 @@ export function renderSetupReport(report) {
   lines.push(`  flavor         ${report.backend.flavor}`);
   lines.push(`  baseUrl        ${report.backend.baseUrl}`);
   // configSource is "auto-detect" (the oMLX→Ollama ladder picked the flavor) or
-  // the config layer that selected it ("user-config" / "workspace-config").
+  // the config layer that selected it ("user-config" / "workspace-config"). When
+  // a config file selected it, name the exact file so the source is unambiguous.
   const ladderNote =
     report.backend.configSource === "auto-detect"
       ? "auto-detect (oMLX → Ollama ladder)"
-      : report.backend.configSource;
+      : report.backend.configSourcePath
+        ? `${report.backend.configSource} (${report.backend.configSourcePath})`
+        : report.backend.configSource;
   lines.push(`  selected via   ${ladderNote}`);
+  // Key SOURCE only — the secret value is never read or printed here.
+  lines.push(`  key source     ${renderKeySource(report.backend)}`);
   lines.push(`  codex support  ${report.backend.codexSupported ? "yes" : "no (no /v1/responses)"}`);
   lines.push("");
   lines.push("Binaries on PATH:");
@@ -218,6 +225,25 @@ export function renderSetupReport(report) {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+// Render the key SOURCE (never the value). Describes where the harnesses get
+// their auth from: an env var, a file, an inline literal, or no key at all.
+function renderKeySource(backend) {
+  switch (backend.keySource) {
+    case "none":
+      return "none (keyless backend)";
+    case "env":
+      return `env var${backend.envKey ? ` (${backend.envKey})` : ""}`;
+    case "file":
+      return `file (injected via ${backend.envKey ?? "env"})`;
+    case "literal":
+      return `literal (injected via ${backend.envKey ?? "env"})`;
+    case "settings":
+      return `${backend.envKey ?? "env"} (from backend settings)`;
+    default:
+      return backend.envKey ? `env var (${backend.envKey})` : "none";
+  }
 }
 
 // Render the outcome of an apply attempt for a single harness.

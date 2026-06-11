@@ -34,8 +34,8 @@ is unreachable.
 ## Backends
 
 Frontier resolves one backend descriptor that drives every harness detail
-(base URL, auth, provider/profile names, model resolution). Two local flavors are
-supported today:
+(base URL, auth, provider/profile names, model resolution). Three flavors are
+supported:
 
 - **oMLX** — the oMLX server (`127.0.0.1:8000`), with auth and `/v1/responses`
   (so both the Pi and Codex harnesses work).
@@ -43,12 +43,72 @@ supported today:
   by default. Active/available models come from Ollama's `/api/ps` and
   `/api/tags`. If the server does not serve `/v1/responses`, the Codex harness is
   disabled for that backend and `setup` says so; the Pi harness still works.
+- **openai** — any OpenAI-compatible server (LM Studio, vLLM, llama.cpp's server,
+  a remote gateway, …), selected **only** via a config file. See
+  [Bring your own server](#bring-your-own-server) below.
 
-The flavor is chosen by an **auto-detect ladder** — oMLX first (its settings file
-exists or the server answers on `127.0.0.1:8000`), then Ollama (the server answers
-on `127.0.0.1:11434`). A `frontier.config.json` (workspace root) or
-`~/.frontier/config.json` (user) can select a flavor explicitly and override the
-base URL.
+`oMLX` and `Ollama` are chosen by an **auto-detect ladder** — oMLX first (its
+settings file exists or the server answers on `127.0.0.1:8000`), then Ollama (the
+server answers on `127.0.0.1:11434`). The `openai` flavor is never auto-detected;
+it requires an explicit config selection. A `frontier.config.json` (workspace
+root) or `~/.frontier/config.json` (user) can select any flavor explicitly and
+override the base URL.
+
+A config file that contains malformed JSON, or that names an unknown `flavor`,
+is a hard error naming the offending file — Frontier never silently ignores a
+broken config and falls back to auto-detect.
+
+## Bring your own server
+
+To point Frontier at any OpenAI-compatible server, create a
+`frontier.config.json` at your workspace root (committable, repo-level) or a
+`~/.frontier/config.json` (user-level). Workspace config wins over user config.
+Select the `openai` flavor and give it a `baseUrl` (the OpenAI-compatible `/v1`
+root). For example, an LM Studio server running on `127.0.0.1:1234` with no auth:
+
+```json
+{
+  "flavor": "openai",
+  "baseUrl": "http://127.0.0.1:1234/v1"
+}
+```
+
+Full schema (only `flavor` and `baseUrl` are required for `openai`):
+
+```json
+{
+  "flavor": "openai",
+  "baseUrl": "http://127.0.0.1:1234/v1",
+  "apiKey": { "env": "MY_KEY" },
+  "defaultModel": "qwen3-coder",
+  "piProvider": "frontier-local",
+  "codexProfile": "frontier-local"
+}
+```
+
+- **`baseUrl`** (required) — the OpenAI-compatible `/v1` root. Missing it is an
+  error with an actionable message.
+- **`apiKey`** (optional) — how to obtain the bearer token. Three forms:
+  - `{ "env": "MY_KEY" }` — read from the `MY_KEY` environment variable; the
+    harnesses reference `$MY_KEY` directly.
+  - `{ "file": "/path/to/creds.json", "jsonPath": "a.b" }` — read from a JSON
+    file (omit `jsonPath` to read the whole file as the key).
+  - `{ "value": "sk-..." }` — an inline literal (discouraged, but works).
+
+  For the `file` and `value` forms the key is injected into the harness child
+  process under the env var `FRONTIER_API_KEY` (and referenced as such in the Pi
+  provider entry and the Codex profile's `env_key`). With no `apiKey` the backend
+  is keyless, like a local Ollama. The secret value is never logged or printed by
+  `setup` — only its *source* (env / file / literal / none) is shown.
+- **`defaultModel`** (optional) — the model to pin runs to. The active-model
+  ladder for `openai` is: `defaultModel` → the single entry in `/v1/models` →
+  refuse and require an explicit `--model`.
+- **`piProvider`** / **`codexProfile`** (optional) — the names Frontier uses for
+  the Pi provider entry and Codex profile (default `frontier-local` for both).
+
+Codex support is detected by probing `/v1/responses`. If your server does not
+serve it, `setup` disables the Codex harness for that backend and the Pi harness
+still works.
 
 ## One-time setup
 

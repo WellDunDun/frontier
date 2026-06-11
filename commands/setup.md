@@ -18,7 +18,14 @@ and the readiness of the Pi provider and Codex profile.
 The backend flavor is chosen by an auto-detect ladder — oMLX first (its settings
 file exists or the server answers on `127.0.0.1:8000`), then Ollama (the server
 answers on `127.0.0.1:11434`) — unless a `frontier.config.json` (workspace) or
-`~/.frontier/config.json` (user) selects a flavor explicitly.
+`~/.frontier/config.json` (user) selects a flavor explicitly. The `openai` flavor
+(any OpenAI-compatible server) is config-only and never auto-detected; it requires
+`baseUrl` in the config. The report's "key source" line shows where auth comes from
+(env / file / literal / none) and never prints the secret value.
+
+If the report errors out because a config file is malformed JSON or names an
+unknown flavor, relay the message verbatim — it identifies the offending file and
+what to fix.
 
 If the report says Codex is unsupported on the backend (the server does not serve
 `/v1/responses`, as with a vanilla Ollama install):
