@@ -6,6 +6,7 @@
   "description": "Claude Code plugin for Fable orchestration and provider-backed local subagents.",
   "license": "MIT",
   "scripts": {
-    "check": "node scripts/check-frontier-plugin.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm test && node scripts/check-frontier-plugin.mjs"
   }
 }

@@ -208,12 +208,29 @@ async function checkForbiddenStrings() {
   }
 }
 
+function checkNoTrackedLocalWorktrees() {
+  let tracked = "";
+  try {
+    tracked = execFileSync("git", ["ls-files", ".claude/worktrees"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+  } catch {
+    return;
+  }
+  if (tracked) {
+    fail(`.claude/worktrees contains tracked local agent worktrees: ${tracked}`);
+  }
+}
+
 async function main() {
   await checkRequiredFiles();
   await checkAgents();
   await checkSkills();
   await checkScriptsParse();
   await checkForbiddenStrings();
+  checkNoTrackedLocalWorktrees();
 
   if (failures.length > 0) {
     console.error("Frontier plugin check failed:");

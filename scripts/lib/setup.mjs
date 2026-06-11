@@ -67,7 +67,7 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
     binaries.pi.available &&
     binaries.codex.available &&
     piProvider &&
-    health.reachable;
+    health.ok;
 
   const nextSteps = [];
   if (!binaries.omlx.available) {
@@ -81,6 +81,10 @@ export async function buildSetupReport({ apply = false, workspaceRoot } = {}) {
   }
   if (!health.reachable) {
     nextSteps.push("Start the local server: `omlx start` (or `omlx serve <model>`).");
+  } else if (!health.ok) {
+    nextSteps.push(
+      `The local server responded with ${health.detail}. Check backend auth/configuration before running workers.`
+    );
   }
   if (!piProvider) {
     nextSteps.push(

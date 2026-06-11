@@ -1,5 +1,8 @@
 # Frontier companion job state (project-local, never committed)
 .frontier/
 
+# Local Claude agent worktrees (never committed)
+.claude/worktrees/
+
 # Node
 node_modules/

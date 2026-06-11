@@ -66,16 +66,17 @@ export async function preflight({ harness, scriptPath, backend }) {
   }
 
   const health = await checkOmlxHealth(resolved);
-  if (!health.reachable) {
+  if (!health.ok) {
     problems.push(
-      `Local server at ${resolved.baseUrl} is not reachable (${health.detail}). ` +
-        `Start it with: omlx start`
+      health.reachable
+        ? `Local server at ${resolved.baseUrl} responded with ${health.detail}. Check backend auth/configuration.`
+        : `Local server at ${resolved.baseUrl} is not reachable (${health.detail}). Start it with: omlx start`
     );
   }
 
   // Keep pi's provider entry in step with what the server actually serves, so
   // whichever model is selected in the backend GUI resolves in pi.
-  if (harness === "pi" && health.reachable && piOmlxProviderPresent(resolved)) {
+  if (harness === "pi" && health.ok && piOmlxProviderPresent(resolved)) {
     syncPiOmlxModels(resolved, await fetchOmlxModels(resolved));
   }
 

@@ -151,23 +151,23 @@ async function handleTask(argv) {
     createdAt: nowIso(),
     status: "queued"
   };
-  upsertJob(workspaceRoot, jobId, baseRecord);
 
   if (options.background) {
+    // Persist the full task, including the prompt, before spawning the detached
+    // worker. Otherwise the child can race ahead and read an incomplete job.
+    upsertJob(workspaceRoot, jobId, { ...baseRecord, prompt });
     const child = spawnDetachedWorker({ cwd, jobId });
     upsertJob(workspaceRoot, jobId, {
       status: "running",
       startedAt: nowIso(),
-      pid: child.pid ?? null,
-      prompt
+      pid: child.pid ?? null
     });
-    // Persist the prompt so the detached worker can read it back.
-    upsertJob(workspaceRoot, jobId, { prompt });
     const job = readJobFile(workspaceRoot, jobId);
     emit({ jobId, status: "running", harness }, renderQueued(job), options.json);
     return;
   }
 
+  upsertJob(workspaceRoot, jobId, baseRecord);
   upsertJob(workspaceRoot, jobId, { status: "running", startedAt: nowIso(), pid: process.pid });
   const result = await runHarness({
     harness,
@@ -310,7 +310,7 @@ function handleResult(argv) {
   const cwd = resolveCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot)).map(reconcileJobLiveness);
-  const job = matchJob(jobs, positionals[0]);
+  const job = matchJob(jobs, requireJobReference(positionals, "result"));
   emit(job, renderResult(job), options.json);
 }
 
@@ -327,7 +327,7 @@ function handleCancel(argv) {
   const cwd = resolveCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(listJobs(workspaceRoot));
-  const job = matchJob(jobs, positionals[0]);
+  const job = matchJob(jobs, requireJobReference(positionals, "cancel"));
 
   if (job.pid) {
     terminateProcessTree(job.pid);
@@ -339,6 +339,14 @@ function handleCancel(argv) {
     errorMessage: "Cancelled by user."
   });
   emit(updated, renderCancel(updated), options.json);
+}
+
+function requireJobReference(positionals, subcommand) {
+  const reference = String(positionals[0] ?? "").trim();
+  if (!reference) {
+    throw new Error(`Provide a job id: ${subcommand} <job-id>. Run status to list known jobs.`);
+  }
+  return reference;
 }
 
 // -----------------------------------------------------------------------------

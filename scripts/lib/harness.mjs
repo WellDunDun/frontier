@@ -578,16 +578,16 @@ function pickAssistantText(value) {
     return null;
   }
 
+  // OpenAI-style { role: "assistant", content: ... }
+  if (value.role && value.role !== "assistant") {
+    return null;
+  }
+
   // Common direct fields.
   for (const key of ["text", "content", "message", "response", "output", "result"]) {
     if (typeof value[key] === "string" && value[key].trim()) {
       return value[key];
     }
-  }
-
-  // OpenAI-style { role: "assistant", content: ... }
-  if (value.role && value.role !== "assistant") {
-    // Skip non-assistant roles when role is explicit.
   }
   if (value.content != null) {
     const picked = pickAssistantText(value.content);
