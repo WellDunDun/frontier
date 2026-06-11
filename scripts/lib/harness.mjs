@@ -11,6 +11,7 @@ import { runCommand } from "./process.mjs";
 
 export const OMLX_BASE_URL = "http://127.0.0.1:8000/v1";
 export const OMLX_MODELS_URL = `${OMLX_BASE_URL}/models`;
+export const OMLX_STATUS_URL = `${OMLX_BASE_URL.replace(/\/v1$/, "")}/api/status`;
 export const PI_PROVIDER_DEFAULT = "omlx";
 export const CODEX_PROFILE = "frontier-omlx";
 
@@ -29,7 +30,7 @@ const CODEX_DEFAULT_MODEL = "mlx-community--gemma-4-12B-it-8bit";
 // The oMLX server requires an API key. We read it from ~/.omlx/settings.json so
 // the health probe can authenticate. A 401/200 both prove the server is alive;
 // only a connection failure means it is down.
-function readOmlxApiKey() {
+export function readOmlxApiKey() {
   try {
     const settings = JSON.parse(fs.readFileSync(OMLX_SETTINGS_PATH, "utf8"));
     const key = settings?.auth?.api_key;
@@ -72,6 +73,101 @@ export async function checkOmlxHealth(timeoutMs = 4000) {
 }
 
 // -----------------------------------------------------------------------------
+// Dynamic model resolution from the oMLX server
+// -----------------------------------------------------------------------------
+
+function omlxAuthHeaders() {
+  const apiKey = readOmlxApiKey();
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
+async function fetchOmlxJson(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { headers: omlxAuthHeaders(), signal: controller.signal });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// The model selected in the oMLX GUI surfaces as the server's loaded model.
+// Resolve at call time so delegation always follows the user's selection
+// instead of a hardcoded id. Falls back to the server's default model when
+// nothing (or more than one thing) is loaded.
+export async function fetchOmlxActiveModel(timeoutMs = 4000) {
+  const status = await fetchOmlxJson(OMLX_STATUS_URL, timeoutMs);
+  if (!status) {
+    return null;
+  }
+  const loaded = Array.isArray(status.loaded_models)
+    ? status.loaded_models.filter((m) => typeof m === "string" && m)
+    : [];
+  if (loaded.length === 1) {
+    return loaded[0];
+  }
+  if (typeof status.default_model === "string" && status.default_model) {
+    return status.default_model;
+  }
+  return loaded[0] ?? null;
+}
+
+// Chat-capable models the server currently serves. Utility models (e.g. the
+// document converter) report no context length and are excluded.
+export async function fetchOmlxModels(timeoutMs = 4000) {
+  const list = await fetchOmlxJson(OMLX_MODELS_URL, timeoutMs);
+  const data = Array.isArray(list?.data) ? list.data : [];
+  return data
+    .filter((m) => typeof m?.id === "string" && m.id && m.max_model_len != null)
+    .map((m) => ({ id: m.id, contextWindow: m.max_model_len }));
+}
+
+// Mirror the server's chat models into pi's omlx provider entry so pi can
+// resolve whichever model the user selects in the oMLX GUI. Rewrites only
+// providers.omlx.models; everything else in models.json is preserved.
+export function syncPiOmlxModels(serverModels) {
+  if (!Array.isArray(serverModels) || serverModels.length === 0) {
+    return { synced: false, changed: false, reason: "no server models" };
+  }
+  try {
+    const config = JSON.parse(fs.readFileSync(PI_MODELS_PATH, "utf8"));
+    const provider = config?.providers?.[PI_PROVIDER_DEFAULT];
+    if (!provider) {
+      return { synced: false, changed: false, reason: "omlx provider missing" };
+    }
+    const existing = Array.isArray(provider.models) ? provider.models : [];
+    const fingerprint = (models) => JSON.stringify(models.map((m) => [m.id, m.contextWindow]));
+    const next = serverModels.map((m) => {
+      const known = existing.find((e) => e?.id === m.id);
+      return known
+        ? { ...known, contextWindow: m.contextWindow }
+        : {
+            id: m.id,
+            contextWindow: m.contextWindow,
+            maxTokens: 32768,
+            input: ["text"],
+            reasoning: false,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+          };
+    });
+    if (fingerprint(next) === fingerprint(existing)) {
+      return { synced: true, changed: false };
+    }
+    provider.models = next;
+    fs.writeFileSync(PI_MODELS_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    return { synced: true, changed: true };
+  } catch (error) {
+    return { synced: false, changed: false, reason: String(error?.message ?? error) };
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Provider configuration guardrails (structural no-cloud-fallback)
 // -----------------------------------------------------------------------------
 
@@ -82,6 +178,20 @@ export function piOmlxProviderPresent() {
     return Boolean(provider && provider.baseUrl);
   } catch {
     return false;
+  }
+}
+
+// Pi resolves its model from user-level settings (~/.pi/agent/settings.json)
+// when only --provider is passed, which silently routes to whatever default
+// provider the user last picked — including cloud ones. Always pin --model to
+// the omlx provider's configured entry so that fallback path cannot trigger.
+export function piOmlxDefaultModel() {
+  try {
+    const config = JSON.parse(fs.readFileSync(PI_MODELS_PATH, "utf8"));
+    const id = config?.providers?.[PI_PROVIDER_DEFAULT]?.models?.[0]?.id;
+    return typeof id === "string" && id ? id : null;
+  } catch {
+    return null;
   }
 }
 
@@ -305,10 +415,11 @@ function pickAssistantText(value) {
 // Codex invocation
 // -----------------------------------------------------------------------------
 
-export function buildCodexArgs({ write, lastMessageFile, prompt }) {
+export function buildCodexArgs({ write, lastMessageFile, prompt, model }) {
   // codex exec rejects the interactive approval flag, so it is never passed
   // here. Never use a bare -m without the profile: the profile is what binds
   // codex to the local oMLX provider, preventing a silent cloud fallback.
+  // With the profile in place, -m only swaps which local model is requested.
   const args = [
     "exec",
     "--ephemeral",
@@ -321,6 +432,9 @@ export function buildCodexArgs({ write, lastMessageFile, prompt }) {
     lastMessageFile,
     "--json"
   ];
+  if (model) {
+    args.push("--model", model);
+  }
   args.push(prompt);
   return args;
 }
